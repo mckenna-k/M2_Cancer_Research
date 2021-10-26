@@ -1,0 +1,82 @@
+---
+title: "Données de survie"
+author: "Marame Diagne, Kévin McKenna, Florence Pittion-Bordigoni, Shuyu Wang, Théo Silvestre"
+date: "`r Sys.Date()`"
+output:
+  rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+
+```{r, echo=FALSE, eval=TRUE, label="loading libraries"}
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=FALSE, results="hide")
+```
+
+```{r,echo=FALSE}
+df <- read.csv("TCGA-CDR-SupplementalTableS1.csv",sep=";")
+df$age_at_initial_pathologic_diagnosis <- as.numeric(df$age_at_initial_pathologic_diagnosis)
+df$OS.time <- as.numeric(df$OS.time)
+df$DSS.time <- as.numeric(df$DSS.time)
+```
+
+```{r,echo=FALSE}
+ggplot(df)+
+  ggtitle("Type de cancer")+
+  geom_bar(aes(type,..count..))+
+  theme_minimal()
+```
+
+
+```{r,echo=FALSE}
+ggplot(df)+
+  ggtitle("Age du diagnostique")+
+  geom_histogram(aes(age_at_initial_pathologic_diagnosis,..count..,fill=vital_status),color=NA)+
+  facet_wrap(~type)+
+  theme_minimal()
+```
+
+```{r,echo=FALSE}
+ggplot(df)+
+  ggtitle("Statut vital en fonction du statut de la tumeur")+
+  geom_bar(aes(vital_status,..count..,fill=tumor_status),color=NA)+
+  theme_minimal()
+```
+
+```{r,echo=FALSE}
+ggplot(df)+
+  ggtitle("Statut vital en fonction du statut de la tumeur et le type de cancer")+
+  geom_bar(aes(vital_status,..count..,fill=tumor_status),color=NA)+
+  facet_wrap(~type)+
+  theme_minimal()
+```
+
+```{r,echo=FALSE}
+ggplot(df)+
+  ggtitle("Genre")+
+  geom_bar(aes(gender,..count..,fill=vital_status),color=NA)+
+  facet_wrap(~type)+
+  theme_minimal()
+```
+
+```{r,echo=FALSE}
+ggplot(df)+
+  ggtitle("Survie")+
+  geom_boxplot(aes(x="OS",y=OS.time,color=OS))+
+  geom_boxplot(aes(x="DSS",y=DSS.time,color=DSS))+
+  facet_wrap(~type)+
+  theme_minimal()
+```
+
+```{r,echo=FALSE}
+
+```
+
+```{r,echo=FALSE}
+
+```
+
+```{r,echo=FALSE}
+
+```
