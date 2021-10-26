@@ -1,7 +1,7 @@
 library(tidyverse)
 library(survival)
-data = read.csv("~/M2SSD/ProjetTutore/Articles/TCGA-CDR-SupplementalTableS1.csv")
-
+data <- read.csv("~/M2SSD/ProjetTutore/M2_Cancer_Research/data/TCGA-CDR_data.csv")
+head(data[4])
 data = data %>% na_if('#N/A')
 data = data %>% mutate_at(c(2,4,13,16,17,22,26:33),as.character)
 data = data %>% mutate_at(c(4,13,16,17,22,26:33),as.numeric)
@@ -22,7 +22,13 @@ ggplot(data)+
 
 ggplot(data)+
   geom_density(aes(as.numeric(OS.time)))+
+  geom_density(aes(as.numeric(DFI.time)), col = 'red')+
   facet_wrap(data$type)
+ggplot(data)+
+  geom_density(aes(as.numeric(OS.time)))+
+  geom_density(aes(as.numeric(DFI.time)), col = 'red')+
+  geom_density(aes(as.numeric(PFI.time)), col = 'blue')+
+  facet_wrap(data$ajcc_pathologic_tumor_stage, scales = 'free')
 ggplot(data)+
   geom_density(aes(as.numeric(OS.time)))+
   facet_wrap(data$gender)
