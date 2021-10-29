@@ -15,7 +15,7 @@ knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=13, fig.height=10
 ```
 
 ```{r,echo=FALSE,warning=FALSE}
-df <- read.csv("TCGA-CDR_data.csv",sep=",")
+df <- read.csv("data/TCGA-CDR_data.csv",sep=",")
 df <- df[,c(-1,-2)]
 quant <- c("age_at_initial_pathologic_diagnosis","initial_pathologic_dx_year","birth_days_to","last_contact_days_to","death_days_to","new_tumor_event_dx_days_to","OS.time","DSS.time","DFI.time","PFI.time")
 cat <- colnames(df[,!colnames(df) %in% quant])
