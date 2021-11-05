@@ -1,0 +1,355 @@
+---
+title: "Données de survie"
+author: "Marame Diagne, Kévin McKenna, Florence Pittion-Bordigoni, Shuyu Wang, Théo Silvestre"
+date: "`r Sys.Date()`"
+output:
+  rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+
+```{r, echo=FALSE, eval=TRUE, label="loading libraries"}
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=13, fig.height=10, eval=TRUE, echo=FALSE, results="hide")
+```
+
+```{r,echo=FALSE,warning=FALSE}
+df <- read.csv("TCGA-CDR_data.csv",sep=",")
+df <- df[,c(-1,-2)]
+quant <- c("age_at_initial_pathologic_diagnosis","initial_pathologic_dx_year","birth_days_to","last_contact_days_to","death_days_to","new_tumor_event_dx_days_to","OS.time","DSS.time","DFI.time","PFI.time")
+cat <- colnames(df[,!colnames(df) %in% quant])
+
+for( i in quant){
+  df[,i] <- as.numeric(df[,i])
+}
+
+df[df=="[Discrepancy]"] <- "NA"
+df[df=="[Not Applicable]"] <- "NA"
+df[df=="[Not Available]"] <- "NA"
+df[df=="[Unknown]"] <- "NA"
+df[df=="#N/A"] <- "NA"
+df[df=="=#N/D"] <- "NA"
+```
+
+# Exploration des variables
+
+## Tri à plat des variables
+
+```{r, echo=FALSE,results='markup'}
+for( i in quant){
+  print(i)
+  print(summary(df[,i]))
+}
+```
+
+```{r, echo=FALSE,results='markup'}
+for( i in cat[c(-6,-11,-12,-13,-14)]){
+  print(i)
+  print(table(df[,i]))
+}
+for( i in cat[c(6,11,12,13,14)]){
+  print(i)
+  print(paste0("Nb de modalités: ",length(unique(df[,i]))))
+  print(paste0("Nb de NAs: ",table(df[,i])[["NA"]]))
+}
+```
+
+## Graphiques sur les variables et covariables
+
+```{r,results='markup'}
+table(df$vital_status,df$OS)
+```
+
+```{r,results='markup'}
+table(df$DSS %in% df$OS)
+table(df$OS,df$DSS)
+df$cause_of_death[which(is.na(df$DSS))]
+table(df$tumor_status,df$DSS)
+table(is.na(df$DSS))
+```
+
+```{r, echo=FALSE}
+library(ggplot2)
+
+dfBIS <- df
+dfBIS$DSS <- as.factor(df$DSS) 
+ggplot(dfBIS)+
+  ggtitle("OS en fonction de DSS")+
+  geom_bar(aes(OS,..count..,fill=DSS),color=NA)+
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+ggplot(df)+
+  ggtitle("Statut vital en fonction du statut de la tumeur")+
+  geom_bar(aes(DSS,..count..,fill=tumor_status),color=NA)+
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+dfBIS <- df
+dfBIS$DSS <- as.factor(df$DSS) 
+ggplot(dfBIS)+
+  ggtitle("PFI en fonction du statut de la tumeur")+
+  geom_bar(aes(PFI,..count..,fill=DSS),color=NA)+
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+library(ggplot2)
+
+df$type <- ordered(df$type,names(sort(table(df$type),decreasing = TRUE))) #réordonnement selon les effectifs
+ggplot(df)+
+  ggtitle("Type de cancer")+
+  geom_bar(aes(type,..count..))+
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+dfAjcc <- df
+dfAjcc$ajcc_pathologic_tumor_stage[df$ajcc_pathologic_tumor_stage=="NA"] <- df$clinical_stage[df$ajcc_pathologic_tumor_stage=="NA"]
+dfAjcc$ajcc_pathologic_tumor_stage <- as.factor(dfAjcc$ajcc_pathologic_tumor_stage)
+levels(dfAjcc$ajcc_pathologic_tumor_stage) <- c("I - II","I - II","I - II","I - II","III - IV","I - II","III - IV","III - IV","NA","other","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","I - II","III - IV","III - IV","III - IV","III - IV","other")
+
+ggplot(data=dfAjcc)+               
+  geom_bar(aes(x=DSS,y=..count..,fill=ajcc_pathologic_tumor_stage),color=NA)+
+  facet_wrap(~type)+
+  ggtitle("Repartition des différents stades au diagnostic selon cancer")+
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+ggplot(data=dfAjcc)+               
+  geom_bar(aes(x=DSS,y=..count..,fill=ajcc_pathologic_tumor_stage),position='fill',color=NA)+
+  facet_wrap(~type)+
+  ggtitle("Repartition des différents stades au diagnostic selon cancer")+
+  theme_minimal()
+```
+
+
+```{r, echo=FALSE}
+ggplot(df)+
+  ggtitle("Genre en fonction du statut vital et du type de cancer")+
+  geom_bar(aes(gender,..count..,fill=DSS),color=NA)+
+  facet_wrap(~type)+
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+ggplot(df)+
+  ggtitle("Age du diagnostique en fonction du statut vital et du type de cancer")+
+  geom_histogram(aes(age_at_initial_pathologic_diagnosis,..count..,fill=DSS),color=NA)+
+  facet_wrap(~type)+
+  theme_minimal()
+```
+
+
+```{r, echo=FALSE}
+ggplot(df)+
+  ggtitle("Statut vital en fonction du statut de la tumeur et le type de cancer")+
+  geom_bar(aes(DSS,..count..,fill=tumor_status),color=NA)+
+  facet_wrap(~type)+
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+library(stringr)
+
+df$grade = apply(t(t(df$histological_grade)),1, function (grade) {
+  # high/low
+  if (grade=="High Grade"){
+    grade="G3"
+  } else if (grade=="Low Grade"){
+    grade="G1"
+  } 
+  grade = str_extract(grade, "G\\d")
+  return (grade)
+}
+)
+
+
+ggplot(data=subset(df, !is.na(grade)), aes(grade,..count.., fill=grade),color=NA)+ geom_bar(stat="count")+
+   ggtitle("Repartition des différents grades de tumeur au diagnostic selon cancer")+
+  facet_wrap(~type)+
+  theme_minimal()
+```
+
+
+## Données de survie
+
+```{r, echo=FALSE}
+dfdeath <- df
+dfdeath[df$OS!="1","OS.time"] <- rep(NA,sum(df$OS!="1"))
+dfdeath[df$DSS!="1","DSS.time"] <- rep(NA,sum(df$DSS!="1"))
+
+ggplot(dfdeath)+
+  ggtitle("Temps de survie")+
+  ylab("Temps de survie")+
+  xlab("Endpoints")+
+  geom_boxplot(aes(x="OS",y=OS.time/365.25),lwd=0.3)+
+  geom_boxplot(aes(x="DSS",y=DSS.time/365.25),lwd=0.3)+
+  facet_wrap(~type)+
+  coord_cartesian(ylim=c(0,10))+
+  theme_minimal()
+```
+
+
+```{r,echo=FALSE}
+ggplot(df)+
+  geom_bar(aes(x=PFI,y=..count..,fill=DSS),color=NA)+
+  facet_wrap(~type)+
+  xlab("Progression-free interval")+
+  ggtitle("PFI en fonction du statut vital")+
+  theme_minimal()
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+tab = df[which(df$DSS==1),]
+tab$tranche = cut(tab$age_at_initial_pathologic_diagnosis,seq(10, 90, 10),right = T)
+
+library(dplyr)
+age_time_groups <- tab %>% group_by(type,tranche)  %>% summarise(DSS_mean = mean(na.omit(DSS.time)))
+
+ggplot(na.omit(age_time_groups),mapping = aes(x = tranche, y = DSS_mean/365.25, group=type)) +
+  geom_line()+geom_point(size=1)+
+  facet_wrap(~type, ncol=7) + xlab("tranches d'âge (années)") + ylab("temps moyen (années)")+
+  theme(axis.text.x = element_text(angle=90,hjust=1,vjust=.5),legend.position="right")+
+  ggtitle(" Temps moyen de survie pour les personnes décédées de cancer en fonction de leur âge")+
+  theme_minimal()
+```
+
+```{r, echo=FALSE, warning=FALSE}
+library(survival)
+
+df$OS <- as.numeric(df$OS)
+df$DSS <- as.numeric(df$DSS)
+df$PFI <- as.numeric(df$PFI)
+df$DFI <- as.numeric(df$DFI)
+
+endpoints <- c("OS","DSS","PFI","DFI")
+endpoints.time <- c("OS.time","DSS.time","PFI.time","DFI.time")
+type <- c()
+time <- c()
+survVal <- c()
+survValUp <- c()
+survValDo <- c()
+end <- c()
+for(j in 1:4){
+  for(i in unique(df$type)){
+    if(!all(is.na(df[[endpoints.time[[j]]]][df$type==i])) & !all(df[[endpoints[[j]]]][df$type==i])){
+      y <- Surv(df[[endpoints.time[[j]]]][df$type==i],df[[endpoints[[j]]]][df$type==i])
+      sf <- survfit(y~1)
+      survVal <- c(survVal,sf$surv)
+      survValUp <- c(survValUp,sf$upper)
+      survValDo <- c(survValDo,sf$lower)
+      time <- c(time,sf$time)
+      type <- c(type,rep(i,length(sf$time)))
+      end <- c(end,rep(endpoints[[j]],length(sf$time)))
+    }
+  }
+}
+time <- time/365.25
+dfSurv <- data.frame(time,survVal,survValUp,survValDo,type,end)
+
+ggplot(dfSurv)+
+  geom_step(aes(x=time,y=survVal,color=end))+
+  geom_step(aes(x=time,y=survValUp,color=end),linetype="dashed")+
+  geom_step(aes(x=time,y=survValDo,color=end),linetype="dashed")+
+  facet_wrap(~type)+
+  xlab("time (years)")+
+  ylab("probability")+
+  ggtitle("Courbe de survue en fonction du type de cancer et du type d'évènement")+
+  coord_cartesian(ylim=c(0,1),xlim=c(0,10))+
+  theme_minimal()
+```
+
+```{r,echo=FALSE,warning=FALSE}
+ggplot(dfSurv)+
+  geom_step(aes(x=time,y=survVal,color=end))+
+  facet_wrap(~type)+
+  xlab("time (years)")+
+  ylab("probability")+
+  ggtitle("Courbe de survue en fonction du type de cancer et du type d'évènement")+
+  coord_cartesian(ylim=c(0,1),xlim=c(0,10))+
+  theme_minimal()
+```
+
+```{r,echo=FALSE,warning=FALSE}
+ggplot(dfSurv[dfSurv$end=="DSS" | dfSurv$end=="OS",])+
+  geom_step(aes(x=time,y=survVal,color=end))+
+  facet_wrap(~type)+
+  xlab("time (years)")+
+  ylab("probability")+
+  ggtitle("Courbe de survue en fonction du type de cancer et du type d'évènement")+
+  coord_cartesian(ylim=c(0,1),xlim=c(0,10))+
+  theme_minimal()
+```
+
+```{r,echo=FALSE,warning=FALSE}
+ggplot(dfSurv[dfSurv$end=="DSS" | dfSurv$end=="PFI",])+
+  geom_step(aes(x=time,y=survVal,color=end))+
+  facet_wrap(~type)+
+  xlab("time (years)")+
+  ylab("probability")+
+  ggtitle("Courbe de survue en fonction du type de cancer et du type d'évènement")+
+  coord_cartesian(ylim=c(0,1),xlim=c(0,10))+
+  theme_minimal()
+```
+
+```{r,echo=FALSE,warning=FALSE}
+df$OS <- as.numeric(df$OS)
+df$DSS <- as.numeric(df$DSS)
+df$PFI <- as.numeric(df$PFI)
+df$DFI <- as.numeric(df$DFI)
+
+endpoints <- c("OS","DSS","PFI","DFI")
+endpoints.time <- c("OS.time","DSS.time","PFI.time","DFI.time")
+type <- c()
+time <- c()
+survVal <- c()
+survValUp <- c()
+survValDo <- c()
+ajcc <- c()
+end <- c()
+for(j in 1:4){
+  for(i in unique(df$type)){
+    for(l in unique(dfAjcc$ajcc_pathologic_tumor_stage)){
+      if(!all(is.na(df[[endpoints.time[[j]]]][df$type==i & dfAjcc$ajcc_pathologic_tumor_stage==l])) & !all(df[[endpoints[[j]]]][df$type==i & dfAjcc$ajcc_pathologic_tumor_stage==l])){
+        y <- Surv(df[[endpoints.time[[j]]]][df$type==i & dfAjcc$ajcc_pathologic_tumor_stage==l],df[[endpoints[[j]]]][df$type==i & dfAjcc$ajcc_pathologic_tumor_stage==l])
+        sf <- survfit(y~1)
+        survVal <- c(survVal,sf$surv)
+        survValUp <- c(survValUp,sf$upper)
+        survValDo <- c(survValDo,sf$lower)
+        time <- c(time,sf$time)
+        type <- c(type,rep(i,length(sf$time)))
+        ajcc <- c(ajcc,rep(l,length(sf$time)))
+        end <- c(end,rep(endpoints[[j]],length(sf$time)))
+      }
+    }
+  }
+}
+time <- time/365.25
+dfSurv <- data.frame(time,survVal,survValUp,survValDo,type,end,ajcc)
+
+ggplot(dfSurv[dfSurv$end=="DSS",])+
+  geom_step(aes(x=time,y=survVal,color=ajcc))+
+  facet_wrap(~type)+
+  xlab("time (years)")+
+  ylab("probability")+
+  ggtitle("Courbe de survue en fonction du type de cancer et du type d'évènement")+
+  coord_cartesian(ylim=c(0,1),xlim=c(0,10))+
+  theme_minimal()
+```
+
+```{r,echo=FALSE,warning=FALSE}
+ggplot(dfSurv[dfSurv$end=="PFI",])+
+  geom_step(aes(x=time,y=survVal,color=ajcc))+
+  facet_wrap(~type)+
+  xlab("time (years)")+
+  ylab("probability")+
+  ggtitle("Courbe de survue en fonction du type de cancer et du type d'évènement")+
+  coord_cartesian(ylim=c(0,1),xlim=c(0,10))+
+  theme_minimal()
+```
