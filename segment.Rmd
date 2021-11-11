@@ -1,0 +1,84 @@
+---
+title: "Données de survie segments"
+author: "Marame Diagne, Kévin McKenna, Florence Pittion-Bordigoni, Shuyu Wang, Théo Silvestre"
+date: "`r Sys.Date()`"
+output:
+  rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+
+```{r, echo=FALSE, eval=TRUE, label="loading libraries"}
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=13, fig.height=10, eval=TRUE, echo=FALSE, results="hide")
+```
+
+```{r,echo=FALSE,warning=FALSE}
+df <- read.csv("data/TCGA-CDR_data.csv",sep=",")
+#df <- df[,c(-1,-2)]
+quant <- c("age_at_initial_pathologic_diagnosis","initial_pathologic_dx_year","birth_days_to","last_contact_days_to","death_days_to","new_tumor_event_dx_days_to","OS.time","DSS.time","DFI.time","PFI.time")
+cat <- colnames(df[,!colnames(df) %in% quant])
+
+for( i in quant){
+  df[,i] <- as.numeric(df[,i])
+}
+
+df[df=="[Discrepancy]"] <- "NA"
+df[df=="[Not Applicable]"] <- "NA"
+df[df=="[Not Available]"] <- "NA"
+df[df=="[Unknown]"] <- "NA"
+df[df=="#N/A"] <- "NA"
+df[df=="=#N/D"] <- "NA"
+```
+
+```{r}
+library(tidyverse)
+
+for (cancer in levels(as.factor(df$type)) ) {
+  
+  df_temp=df[df$type==cancer,]
+  df_temp$DSS.time= as.numeric(df_temp$DSS.time)
+  df_temp$PFI.time=as.numeric(df_temp$PFI.time)
+  dfs_temp=df_temp[df_temp$X %in% sample(df_temp$X, 40),]
+  value1 <- rep(0,length(dfs_temp$X))
+  data <- data.frame(
+    x=dfs_temp$X, 
+    value1=value1, 
+    value2=value1+ dfs_temp$DSS.time,
+    value3=value1+ dfs_temp$PFI.time,
+    value4=dfs_temp$DSS,
+    value5=dfs_temp$PFI
+  )
+  
+  data <- data %>% 
+    rowwise() %>% 
+    mutate( mymean = mean(value2) ) %>% 
+    arrange(mymean) %>% 
+    mutate(x=factor(x, x))
+  
+  p=ggplot(data) +
+    geom_segment( aes(x=x, xend=x, y=value1, yend=value2), color="grey") +
+    geom_segment( aes(x=x, xend=x, y=value1, yend=value3), color="grey")+
+    geom_point( aes(x=x, y=value2, shape = value4 ), color="orange", size=4 ) +
+    geom_point( aes(x=x, y=value3, shape = value5), color="blue", size=2 ) +
+    coord_flip()+
+    
+    theme_minimal()+
+    theme(
+      legend.position = "right"
+    ) +
+    xlab("patients") +
+    ylab("time")+
+    
+    ggtitle(cancer)
+  
+ print(p)
+  
+}
+
+
+  
+
+```
+
