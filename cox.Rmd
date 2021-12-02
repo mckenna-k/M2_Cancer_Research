@@ -1,0 +1,112 @@
+---
+title: "Projet"
+author: "Shuyu Wang"
+date: "01/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r,include=FALSE}
+library(readxl)
+library(ggplot2)
+library(survival)
+library(survminer)
+
+TCGA_CDR<- read_excel("TCGA-CDR-SupplementalTableS1 (1).xlsx", sheet = "TCGA-CDR")
+dfAjcc <- TCGA_CDR
+dfAjcc$ajcc_pathologic_tumor_stage[TCGA_CDR$ajcc_pathologic_tumor_stage=="NA"] <- TCGA_CDR$clinical_stage[TCGA_CDR$ajcc_pathologic_tumor_stage=="NA"]
+dfAjcc$ajcc_pathologic_tumor_stage <- as.factor(dfAjcc$ajcc_pathologic_tumor_stage)
+levels(dfAjcc$ajcc_pathologic_tumor_stage) <- c("I - II","I - II","I - II","I - II","III - IV","I - II","III - IV","III - IV","NA","other","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","I - II","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","I - II","III - IV","III - IV","III - IV","III - IV","other")
+dfAjcc_NA = dfAjcc[(dfAjcc$ajcc_pathologic_tumor_stage %in% c("I - II","III - IV"))==TRUE,]
+```
+
+```{r,warning=FALSE}
+
+####################################
+#######   Uni-covariable    ########
+####################################
+
+##############  age  ###############
+cancer_type=c("BRCA","OV","SKCM","THCA","GBM", "MESO", "KICH")
+res_age=data.frame("Type"=NA,"coef_DSS"=NA,"exp_coef_DSS"=NA,"pval_DSS"=NA,"coef_PFI"=NA,"exp_coef_PFI"=NA,"pval_PFI"=NA)
+for(i in 1:length(cancer_type)){
+  dss.cox = coxph(Surv(DSS.time, DSS) ~ age_at_initial_pathologic_diagnosis, data = dfAjcc_NA[dfAjcc_NA$type==cancer_type[i],])
+  pfi.cox = coxph(Surv(PFI.time, PFI) ~ age_at_initial_pathologic_diagnosis, data = dfAjcc_NA[dfAjcc_NA$type==cancer_type[i],])
+  res_age[i,] = c(cancer_type[i],round(dss.cox$coefficients,3),round(exp(dss.cox$coefficients),3),round(summary(dss.cox)$wald["pvalue"],5),round(pfi.cox$coefficients,3),round(exp(pfi.cox$coefficients),3),round(summary(pfi.cox)$wald["pvalue"],5))
+}
+res_age
+
+
+##############  sex  ###############
+cancer_type=c("BRCA","SKCM","THCA","GBM", "MESO", "KICH")
+res_sex=data.frame("Type"=NA,"coef_DSS"=NA,"exp_coef_DSS"=NA,"pval_DSS"=NA,"coef_PFI"=NA,"exp_coef_PFI"=NA,"pval_PFI"=NA)
+for(i in 1:length(cancer_type)){
+  dss.cox = coxph(Surv(DSS.time, DSS) ~ gender, data = dfAjcc_NA[dfAjcc_NA$type==cancer_type[i],])
+  pfi.cox = coxph(Surv(PFI.time, PFI) ~ gender, data = dfAjcc_NA[dfAjcc_NA$type==cancer_type[i],])
+  res_sex[i,] = c(cancer_type[i],round(dss.cox$coefficients,3),round(exp(dss.cox$coefficients),3),round(summary(dss.cox)$wald["pvalue"],5),round(pfi.cox$coefficients,3),round(exp(pfi.cox$coefficients),3),round(summary(pfi.cox)$wald["pvalue"],5))
+}
+res_sex
+
+# pval >0.05: sex pas significatif pour la rechute
+# pour "BRCA" :
+# coef_DSS = 0.251 >0 chez H : H a plus de risque de mort que F, c'est cohérent car avec le code suivant:
+# table(dfAjcc_NA[dfAjcc_NA$type=="BRCA",]$gender,dfAjcc_NA[dfAjcc_NA$type=="BRCA",]$DSS)
+# 1/11 legèrement plus grand que 81/892
+
+# coef_PFI = -0.437< 0 chez homme: H a moins de risque de rechute que F 
+# exp(coef_PFI) = 0.646: Hazard ratios (HR), cad H peut réduire 68% risque de rechute par rapport à F
+
+
+
+
+#############  stage  ##############
+
+cancer_type=c("ACC", "BLCA","BRCA","CHOL","COAD","ESCA","HNSC","KICH","KIRC","KIRP","LIHC","LUAD","LUSC","MESO","PAAD","READ", 
+              "SKCM","STAD","TGCT","THCA")
+res_stage=data.frame("Type"=NA,"coef_DSS"=NA,"exp_coef_DSS"=NA,"pval_DSS"=NA,"coef_PFI"=NA,"exp_coef_PFI"=NA,"pval_PFI"=NA)
+p=c(paste0("p",1:length(cancer_type)))
+for(i in 1:length(cancer_type)){
+  dss.cox = coxph(Surv(DSS.time, DSS) ~ ajcc_pathologic_tumor_stage, data = dfAjcc_NA[dfAjcc_NA$type==cancer_type[i],])
+  pfi.cox = coxph(Surv(PFI.time, PFI) ~ ajcc_pathologic_tumor_stage, data = dfAjcc_NA[dfAjcc_NA$type==cancer_type[i],])
+  res_stage[i,] = c(cancer_type[i],round(dss.cox$coefficients[1],3),round(exp(dss.cox$coefficients[1]),3),round(summary(dss.cox)$wald["pvalue"],5),round(pfi.cox$coefficients[1],3),round(exp(pfi.cox$coefficients[1]),3),round(summary(pfi.cox)$wald["pvalue"],5))
+ fit1=survfit(Surv(DSS.time,DSS)~1,data = dfAjcc_NA[dfAjcc_NA$type==cancer_type[i],])
+  fit2=survfit(Surv(PFI.time,PFI)~1,data = dfAjcc_NA[dfAjcc_NA$type==cancer_type[i],])
+  assign(p[i],ggsurvplot_combine(list(fit1,fit2,survfit(dss.cox),survfit(pfi.cox)),data =dfAjcc_NA[dfAjcc_NA$type==cancer_type[i],], 
+                     legend.labs=c("DSS.KM","PFI.KM","DSS.cox","PFI.cox"),
+                     legend.title=cancer_type[i],
+                     ggtheme = theme_minimal()))
+}
+res_stage
+
+# exemple : COAD
+# pval < 0.05: il y a une association entre stage et PFI/DSS
+# coef_DSS, coef_PFI < 0 pour III-IV: ceux en stage III-IV plus de risque de mort et de rechute
+# exp(coef_DSS) = 0.164: être en stage I-II réduit 1-0.164=83.6% risque de mort par rapport à ceux qui sont en III-IV
+# exp(coef_PFI) = 0.296: être en stage I-II réduit 1-0.296=70.4% risque de rechute par rapport à ceux qui sont en III-IV
+```
+```{r}
+p1
+p2
+p3
+p4
+p5
+p6
+p7
+p8
+p9
+p10
+p11
+p12
+p13
+p14
+p15
+p16
+p17
+p18
+p19
+p20
+```
