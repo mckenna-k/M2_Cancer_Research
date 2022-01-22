@@ -1,0 +1,267 @@
+---
+title: "MSM"
+author: "Kevin McKenna"
+date: "1/19/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(survival)
+library(tidyverse)
+library(gridExtra)
+library(grid)
+library(survminer)
+library(msm)
+
+```
+
+### Change tout les différents factors qui sont NA au vrai NA.  Réduit le dataframe au variables qui peux être interessant.  
+
+```{r}
+data = read.csv("data/TCGA-CDR_data.csv")
+
+library(stringr)
+data$stage = apply(data[,7:8], 1, function (stages) {
+  stage = NA
+  # si colonne 1 commence par '[' 
+  if(str_detect(stages[1], "^\\[")) {
+    # prendre colonne 2
+    stage = stages[2]
+  } else {
+    # prendre colonne 1
+    stage = stages[1]
+  }
+  # capturer (Stage[IV]+),
+  stage = str_extract(stage, "Stage [0IV]+")
+  return (stage)
+}
+)
+
+data[data=="[Discrepancy]"|data=="[Not Applicable]"|data=="[Not Available]"|data=="[Unknown]"|data=="#N/A"|data=="=#N/D"] <- NA
+
+data = data %>% na_if('#N/A') %>% na_if('[Not Available]') %>% na_if('[Not Applicable]')%>% na_if('[Unknown]')%>% na_if('[Not Evaluated]')%>% na_if('[Discrepency]')
+
+
+
+data = data %>% mutate_at(c(2,4,13,16,17,22,26:33),as.character) %>% mutate_at(c(4,13,16,17,22,26:33),as.numeric)
+data_reduc = data[c(1,3:9,11,13,16,17,26:33,35)]
+```
+
+### Enleve les données abherant  
+
+```{r}
+data_reduc <- data_reduc[!is.na(data_reduc$DSS),]
+data_reduc <- data_reduc[!is.na(data_reduc$PFI),]
+data_reduc <- data_reduc[data_reduc$DSS.time>=data_reduc$PFI.time,]
+data_reduc <- data_reduc[!data_reduc$DSS.time==0,]
+data_reduc <- data_reduc[!data_reduc$PFI.time==0,]
+```
+
+### Création de 3 nouveaux colonnes pour chaque état.  
+état 1 est tjrs a temps 0. Etat 1 est temps du PFI, et etat 2 est temps du DSS  
+
+```{r}
+data_reduc['1'] <- rep(0,dim(data_reduc)[1])
+data_reduc['2'] <- data_reduc$PFI.time
+data_reduc['3'] <- data_reduc$DSS.time
+```
+
+### Changement du table a un table long   
+
+```{r}
+data_reduc = pivot_longer(data_reduc, cols = c('1','2','3'), names_to = 'state')
+data_reduc$state = as.numeric(data_reduc$state)
+```
+
+### Enleve quand DSS.time et PFI.time sont egaux.  Enleve les NA dans les colonnes state et value  
+```{r}
+test = data_reduc
+test <- data_reduc[!duplicated(data_reduc[,c('X','value')], fromLast = TRUE),]
+test <- test[!is.na(test$state),]
+test <- test[!is.na(test$value),]
+
+```
+
+
+### Création des Zds pour choix de cancer.  Si veux plusieurs, dois mettre en vector.  Pour tout les Cancers...dois mettre tout dans un vector (a l'instant)
+```{r}
+Zeds <- function(data, cancer){
+  Z1 <- dim(data[with(data, type == cancer & PFI ==1 & PFI.time != DSS.time ),])[1]
+  Z3 <- dim(data[with(data, type == cancer & DSS ==1 & PFI == 1 & PFI.time == DSS.time ),])[1]
+  Z4 <- dim(data[with(data, type == cancer & DSS ==0 & PFI == 0 & PFI.time == DSS.time ),])[1]
+  Z5 <- dim(data[with(data, type == cancer & PFI ==1 & DSS ==1 & PFI.time != DSS.time ),])[1]
+  Z6 <- dim(data[with(data, type == cancer & PFI ==1 & DSS ==0 & PFI.time != DSS.time ),])[1]
+  return (c(Z1,Z3,Z4,Z5,Z6))
+}
+```
+
+```{r}
+Zedsoverall <- function(data, cancer){
+  Z1 <- dim(data[with(data, PFI ==1 & PFI.time != DSS.time ),])[1]
+  Z3 <- dim(data[with(data, DSS ==1 & PFI == 1 & PFI.time == DSS.time ),])[1]
+  Z4 <- dim(data[with(data, DSS ==0 & PFI == 0 & PFI.time == DSS.time ),])[1]
+  Z5 <- dim(data[with(data, PFI ==1 & DSS ==1 & PFI.time != DSS.time ),])[1]
+  Z6 <- dim(data[with(data, PFI ==1 & DSS ==0 & PFI.time != DSS.time ),])[1]
+  return (c(Z1,Z3,Z4,Z5,Z6))
+}
+```
+
+
+### Creation de Zs
+```{r}
+Z <- Zedsoverall(data_reduc,list(a))
+```
+
+### Q matrix par Florence
+```{r}
+Qmatrix = function (z1, z3, z4, z5, z6){
+  sum1 = z1+z3+z4
+  sum2 = z5+z6
+  a = z1/sum1
+  b = z3/sum1
+  c= z5/sum2
+  Q =rbind(c(0,a,b),c(0,0,c),c (0,0,0))
+  
+
+  return(Q)
+}
+```
+
+```{r}
+Qmat = Qmatrix(Z[1],Z[2],Z[3],Z[4],Z[5])
+```
+
+```{r}
+Q2 <- crudeinits.msm(state~value, subject =X,data = test[test$type == 'BRCA',], qmatrix= Qmat)
+```
+
+
+```{r}
+statetable.msm(state, X, test)
+```
+
+```{r}
+test_msm <- msm(state~value, subject =X,data = test, qmatrix= Qmat, deathexact = 3, gen.inits = TRUE)
+test_msm
+```
+
+
+```{r}
+test_msm_BRCA <- msm(state~value, subject =X,data = test[test$type =='BRCA',], qmatrix= Qmat, deathexact = 3, gen.inits = TRUE)
+```
+
+
+```{r}
+# test_msm_cov_stage <- msm(state~value, subject =X,data = test, qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~ajcc_pathologic_tumor_stage)
+```
+
+
+```{r}
+test_msm_cov_stage_brca <- msm(state~value, subject =X,data = test[test$type =='BRCA',], qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~stage)
+```
+
+```{r}
+plot.prevalence.msm(test_msm_cov_stage_brca, mintime = 0)
+
+```
+
+
+```{r}
+msm_age = msm(state~value, subject =X,data = test, qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~age_at_initial_pathologic_diagnosis)
+msm_sex = msm(state~value, subject =X,data = test, qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~gender)
+```
+
+
+```{r}
+plot.prevalence.msm(msm_age, mintime = 0)
+plot.prevalence.msm(msm_sex, mintime = 0)
+
+```
+
+
+```{r}
+plot.prevalence.msm(msm_sex, mintime = 0)
+
+```
+
+
+```{r}
+msm_age_gender_stage = msm(state~value, subject =X,data = test, qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~age_at_initial_pathologic_diagnosis+gender+stage)
+
+```
+
+```{r}
+plot.prevalence.msm(msm_age_gender_stage, mintime = 0)
+
+```
+
+
+
+
+
+```{r}
+msm_age_brca = msm(state~value, subject =X,data = test[test$type =='BRCA',], qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~age_at_initial_pathologic_diagnosis)
+msm_sex_brca = msm(state~value, subject =X,data = test[test$type =='BRCA',], qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~gender)
+```
+
+```{r}
+plot.prevalence.msm(msm_age_brca, mintime = 0)
+plot.prevalence.msm(msm_sex_brca, mintime = 0)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+plot(test_msm_cov_stage_brca)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
