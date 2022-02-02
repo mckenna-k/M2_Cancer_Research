@@ -1,0 +1,169 @@
+---
+title: "Application Mstate"
+author: ""
+date: "01/02/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+```
+
+
+```{r,warning=F,include=F}
+load("simu.rda")
+library("mstate")
+library(readxl)
+library(tidyverse)
+data<- read_excel("TCGA-CDR-SupplementalTableS1 (1).xlsx", sheet = "TCGA-CDR")
+data$DSS.time <- as.numeric(data$DSS.time) #en entrée, les valeurs peuvent être des caractères
+data$DSS <- as.numeric(data$DSS)
+data$PFI.time <- as.numeric(data$PFI.time)
+data$PFI <- as.numeric(data$PFI)
+data$DSS.time[data$PFI.time > data$DSS.time] <- NA #enlève les tumeurs apparues après la mort
+data$PFI.time[data$PFI.time > data$DSS.time] <- NA
+data$DSS.time[data$DSS.time==0] <- NA #enlève les suivis nuls
+data$PFI.time[data$PFI.time==0] <- NA 
+
+pfiNotDead.time <- data$PFI.time/365.25 #temps auquel la maladie se déclare 0 -> 1, le temps est mis en années
+pfiNotDead <- data$PFI
+pfiNotDead[data$PFI.time==data$DSS.time] <- 0 #censuré si le temps de PFI est égal à la mort
+dssDirect.time <- data$DSS.time/365.25 #temps pour la mort sans maladie préalable, 0 -> 2
+dssDirect <- data$DSS
+dssDirect[!data$PFI.time==data$DSS.time] <- 0
+dssRelapse.time <- (data$DSS.time-data$PFI.time)/365.25  #temps de de la mort à partir de la maladie, 1 -> 2
+dssRelapse.time[pfiNotDead==0] <- 0
+dssRelapse <- data$DSS
+dssRelapse[data$PFI.time==data$DSS.time] <- 0
+
+stage <- as.factor(data$ajcc_pathologic_tumor_stage) #stade de la tumeur
+levels(stage) <- c("NA","NA","NA","NA","I - II","I - II","other","I - II","I - II","I - II","I - II","I - II","I - II","I - II","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","other") #simplification des classes et nettoyage
+stageBis <- as.factor(data$clinical_stage) #stade clinique
+levels(stageBis) <- c("NA","NA","NA","I - II","I - II","I - II","III - IV","III - IV","III - IV",rep("I - II",14),rep("III - IV",6),"I - II",rep("III - IV",4)) #simplification des classes et nettoyage
+stage <- sapply(1:length(stage),function(i){
+  if(stage[i]=="NA") return(stageBis[i])
+  else return(stage[i])
+})  #la variable est composé de préférence du stade de la tumeur puis du stade clinique
+
+df <- data.frame("DSS"=data$DSS,"DSS.time"=data$DSS.time/365.25,   #construction de la data frame
+                     "PFI"=data$PFI,"PFI.time"=data$PFI.time/365.25,
+                     "T01"=pfiNotDead,"T01.time"=pfiNotDead.time,
+                     "T02"=dssDirect,"T02.time"=dssDirect.time,
+                     "T12"=dssRelapse,"T12.time"=dssRelapse.time,
+                     stage,"var_nulle"=as.character(covar),"gender"=data$gender,"age"=data$age_at_initial_pathologic_diagnosis,"type"=data$type)
+df <- df[-which(apply(df,1,function(x) any(is.na(x)))),]  #nettoyage des NA sans stage
+dim(df)
+df <- df[-which(is.element(df$stage,c("NA","other"))),] #nettoyage des NA du stage
+df$stage <- factor(df$stage,c("I - II","III - IV"))
+dim(df)
+df$age <- as.numeric(df$age)
+#df_new <- df_new[-which(is.na(df_new$age)),] #nettoyage des NA de l'age
+
+```
+
+
+La première étape consiste à établir une matrice de transition. La matrice spécifie quelles transitions sont possibles (celles avec NA sont impossibles) et attribue numéros aux transitions.
+
+```{r,echo=T}
+tmax = trans.illdeath(names = c("state1", "state2","state3"))
+tmax
+```
+
+Préparation des données en format longue.
+
+```{r,echo=T}
+covar = c("stage", "var_nulle","gender","age" )
+mse_brca<- msprep(data = df[df$type=="BRCA",] , trans = tmax, time = c(NA, "T01.time", "DSS.time"),
+                  status = c(NA, "T01", "DSS"),keep = covar)
+# Tstart:temps d'entrée dans l'état, Tstop : temps de l'événement ou de censure, selon le statut.
+mse_brca[65:72,]
+```
+
+
+```{r,echo=T}
+# nbr d'effectifs/probabilité de transition
+events(mse_brca)
+```
+
+```{r,echo=TRUE}
+mse_paad <- msprep(data = df[df$type=="PAAD",] , trans = tmax, time = c(NA, "T01.time", "DSS.time"),
+                   status = c(NA, "T01", "DSS"),keep = covar)
+events(mse_paad)
+```
+Pour chaque covariable, "expand.covs" sert à développer à chaque transition.
+
+```{r,echo=T}
+expcovs_brca <- expand.covs(mse_brca, covar, append = TRUE)
+head(expcovs_brca) #  covariable spécifique à chaque transition comme une variable distincte
+
+expcovs_paad <- expand.covs(mse_paad, covar, append = TRUE)
+#head(expcovs_paad) 
+```
+Après avoir préparé les données en format long, estimation des effets covariables à l'aide de la régression de Cox.
+
+```{r,echo=TRUE}
+# modele nul
+c0 <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans), data = mse_brca)
+summary(c0)
+```
+
+"msfit" calcule les risques de transition cumulatifs pour chacune des transitions possibles.
+
+```{r,echo=TRUE}
+msf0 <- msfit(object = c0, trans = tmax) 
+#summary(msf0)
+# Haz : le risque cumulée estimé pour chacune des transitions
+head(msf0$Haz)
+```
+
+
+```{r,include=F}
+plot(msf0, las = 1,xlab = "Année")
+```
+
+```{r,echo=T}
+## modele var_null
+c_null <- coxph(Surv(Tstart, Tstop, status)~var_nulle1.1 + var_nulle1.2 + var_nulle1.3 
+                + strata(trans), data = expcovs_brca)
+summary(c_null)
+```
+
+```{r,echo=T}
+c1 <- coxph(Surv(Tstart, Tstop, status) ~ stage + strata(trans), data = expcovs_brca)
+summary(c1)
+```
+
+
+```{r,echo=T}
+# suppose différents effets des covariables pour différentes transitions 
+c2 <- coxph(Surv(Tstart, Tstop, status) ~ stageIII...IV.1+stageIII...IV.2+stageIII...IV.3 
+            + strata(trans), data = expcovs_brca)
+summary(c2)
+
+```
+
+
+```{r,echo=T}
+c1_paad <- coxph(Surv(Tstart, Tstop, status) ~ stage + strata(trans), data = expcovs_paad) 
+summary(c1_paad)
+```
+
+
+```{r,echo=T}
+c2_paad <- coxph(Surv(Tstart, Tstop, status)~stageIII...IV.1+stageIII...IV.2+stageIII...IV.3 
+                 + strata(trans), data = expcovs_paad)
+summary(c2_paad)
+```
+\newpage
+Sur les données simulées...
+
+```{r,echo=T}
+Smse <- msprep(data = df_new , trans = tmax, time = c(NA, "T01.time", "DSS.time"),
+               status = c(NA, "T01", "DSS"))
+events(Smse)
+c <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans), data = Smse)
+summary(c)
+```
+
