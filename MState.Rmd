@@ -17,7 +17,7 @@ load("simu.rda")
 library("mstate")
 library(readxl)
 library(tidyverse)
-data <- read.csv("data/TCGA-CDR_data.csv")
+data<- read_excel("TCGA-CDR-SupplementalTableS1 (1).xlsx", sheet = "TCGA-CDR")
 data$DSS.time <- as.numeric(data$DSS.time) #en entrée, les valeurs peuvent être des caractères
 data$DSS <- as.numeric(data$DSS)
 data$PFI.time <- as.numeric(data$PFI.time)
@@ -52,13 +52,15 @@ df <- data.frame("DSS"=data$DSS,"DSS.time"=data$DSS.time/365.25,   #construction
                      "T01"=pfiNotDead,"T01.time"=pfiNotDead.time,
                      "T02"=dssDirect,"T02.time"=dssDirect.time,
                      "T12"=dssRelapse,"T12.time"=dssRelapse.time,
-                     stage,"var_nulle"=as.character(covar),"gender"=data$gender,"age"=data$age_at_initial_pathologic_diagnosis,"type"=data$type)
+                     stage,"var_nulle"=as.character(covar),"type"=data$type)
 df <- df[-which(apply(df,1,function(x) any(is.na(x)))),]  #nettoyage des NA sans stage
 dim(df)
+
+
 df <- df[-which(is.element(df$stage,c("NA","other"))),] #nettoyage des NA du stage
 df$stage <- factor(df$stage,c("I - II","III - IV"))
 dim(df)
-df$age <- as.numeric(df$age)
+#df$age <- as.numeric(df$age)
 #df_new <- df_new[-which(is.na(df_new$age)),] #nettoyage des NA de l'age
 
 ```
@@ -74,7 +76,14 @@ tmax
 Préparation des données en format longue.
 
 ```{r,echo=T}
-covar = c("stage", "var_nulle","gender","age" )
+covar = c("stage", "var_nulle")
+mse<- msprep(data = df , trans = tmax, time = c(NA, "T01.time", "DSS.time"),
+                  status = c(NA, "T01", "DSS"))
+events(mse)
+```
+
+
+```{r,echo=T}
 mse_brca<- msprep(data = df[df$type=="BRCA",] , trans = tmax, time = c(NA, "T01.time", "DSS.time"),
                   status = c(NA, "T01", "DSS"),keep = covar)
 # Tstart:temps d'entrée dans l'état, Tstop : temps de l'événement ou de censure, selon le statut.
@@ -116,10 +125,15 @@ msf0 <- msfit(object = c0, trans = tmax)
 #summary(msf0)
 # Haz : le risque cumulée estimé pour chacune des transitions
 head(msf0$Haz)
+# Prédire la probabilité de transition cumulée entre chaque état
+prob = probtrans(msf0,predt = 0,method = "greenwood")
+# predictions from state 1
+head(prob[[1]])
+plot(prob)
 ```
 
 
-```{r,include=F}
+```{r}
 plot(msf0, las = 1,xlab = "Année")
 ```
 
@@ -131,22 +145,25 @@ summary(c_null)
 ```
 
 ```{r,echo=T}
-c1 <- coxph(Surv(Tstart, Tstop, status) ~ stage + strata(trans), data = expcovs_brca)
+c1 <- coxph(Surv(Tstart, Tstop, status) ~ stage * strata(trans), data = expcovs_brca)
 summary(c1)
 ```
 
+```{r,echo=T}
+cc <- coxph(Surv(Tstart, Tstop, status) ~ stage * trans, data = expcovs_brca)
+summary(cc)
+```
 
 ```{r,echo=T}
 # suppose différents effets des covariables pour différentes transitions 
 c2 <- coxph(Surv(Tstart, Tstop, status) ~ stageIII...IV.1+stageIII...IV.2+stageIII...IV.3 
             + strata(trans), data = expcovs_brca)
 summary(c2)
-
 ```
 
 
 ```{r,echo=T}
-c1_paad <- coxph(Surv(Tstart, Tstop, status) ~ stage + strata(trans), data = expcovs_paad) 
+c1_paad <- coxph(Surv(Tstart, Tstop, status) ~ stage * strata(trans), data = expcovs_paad) 
 summary(c1_paad)
 ```
 
@@ -165,5 +182,32 @@ Smse <- msprep(data = df_new , trans = tmax, time = c(NA, "T01.time", "DSS.time"
 events(Smse)
 c <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans), data = Smse)
 summary(c)
+```
+
+
+
+
+
+```{r,include=F}
+
+c111 <- coxph(Surv(time, status) ~ stageIII...IV.1, data = expcovs_brca, subset = (trans == 1), method = "breslow")
+c211 <- coxph(Surv(time, status) ~ stageIII...IV.2, data = expcovs_brca, subset = (trans == 2), method = "breslow")
+c311 <- coxph(Surv(time, status) ~stageIII...IV.3, data = expcovs_brca, subset = (trans == 3), method = "breslow")
+
+h3 <- survfit(c311)
+h1 <- survfit(c111)
+h1 <- data.frame(time = h1$time, surv = h1$surv)
+h2 <- survfit(c211)
+h2 <- data.frame(time = h2$time, surv = h2$surv)
+h3 <- data.frame(time = h3$time, surv = h3$surv)
+
+plot(h1,type="l",ylim=c(0,1),xlab="Years",ylab="Probability",lwd=2)
+lines(h2,type="s",lwd=2,col=2)
+lines(h3,type="s",lwd=2,col=3)
+
+text(8,0.71,adj=0,"1")
+text(8,0.9,adj=0,"2")
+text(8,0.3,adj=0,"3")
+
 ```
 
