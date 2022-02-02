@@ -153,12 +153,14 @@ test_msm_BRCA <- msm(state~value, subject =X,data = test[test$type =='BRCA',], q
 
 
 ```{r}
-# test_msm_cov_stage <- msm(state~value, subject =X,data = test, qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~ajcc_pathologic_tumor_stage)
+# test_msm_cov_stage <- msm(state~value, subject =X,data = test[test$type =='BRCA',], qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~ajcc_pathologic_tumor_stage)
+# test_msm_cov_stage
 ```
 
 
 ```{r}
 test_msm_cov_stage_brca <- msm(state~value, subject =X,data = test[test$type =='BRCA',], qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~stage)
+test_msm_cov_stage_brca
 ```
 
 ```{r}
@@ -203,6 +205,10 @@ plot.prevalence.msm(msm_age_gender_stage, mintime = 0)
 ```{r}
 msm_age_brca = msm(state~value, subject =X,data = test[test$type =='BRCA',], qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~age_at_initial_pathologic_diagnosis)
 msm_sex_brca = msm(state~value, subject =X,data = test[test$type =='BRCA',], qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~gender)
+
+msm_tot_brca = msm(state~value, subject =X,data = test[test$type =='BRCA',], qmatrix= Qmat, deathexact = 3, gen.inits = TRUE, covariates = ~stage+age_at_initial_pathologic_diagnosis+gender)
+msm_tot_brca
+
 ```
 
 ```{r}

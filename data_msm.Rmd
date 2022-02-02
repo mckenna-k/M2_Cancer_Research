@@ -1,0 +1,164 @@
+---
+title: "Package MSM"
+author: "Shuyu, Marame, Kevin, Théo, Florence"
+date: "01/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+load("simu.rda")
+data <- read.csv("data/TCGA-CDR_data.csv")
+data$DSS.time <- as.numeric(data$DSS.time) #en entrée, les valeurs peuvent être des caractères
+data$DSS <- as.numeric(data$DSS)
+data$PFI.time <- as.numeric(data$PFI.time)
+data$PFI <- as.numeric(data$PFI)
+data$DSS.time[data$PFI.time > data$DSS.time] <- NA #enlève les tumeurs apparues après la mort
+data$PFI.time[data$PFI.time > data$DSS.time] <- NA
+data$DSS.time[data$DSS.time==0] <- NA #enlève les suivis nuls
+data$PFI.time[data$PFI.time==0] <- NA 
+
+pfiNotDead.time <- data$PFI.time/365.25 #temps auquel la maladie se déclare 0 -> 1, le temps est mis en années
+pfiNotDead <- data$PFI
+pfiNotDead[data$PFI.time==data$DSS.time] <- 0 #censuré si le temps de PFI est égal à la mort
+dssDirect.time <- data$DSS.time/365.25 #temps pour la mort sans maladie préalable, 0 -> 2
+dssDirect <- data$DSS
+dssDirect[!data$PFI.time==data$DSS.time] <- 0
+dssRelapse.time <- (data$DSS.time-data$PFI.time)/365.25  #temps de de la mort à partir de la maladie, 1 -> 2
+dssRelapse.time[pfiNotDead==0] <- 0
+dssRelapse <- data$DSS
+dssRelapse[data$PFI.time==data$DSS.time] <- 0
+
+stage <- as.factor(data$ajcc_pathologic_tumor_stage) #stade de la tumeur
+levels(stage) <- c("NA","NA","NA","NA","I - II","I - II","other","I - II","I - II","I - II","I - II","I - II","I - II","I - II","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","other") #simplification des classes et nettoyage
+stageBis <- as.factor(data$clinical_stage) #stade clinique
+levels(stageBis) <- c("NA","NA","NA","I - II","I - II","I - II","III - IV","III - IV","III - IV",rep("I - II",14),rep("III - IV",6),"I - II",rep("III - IV",4)) #simplification des classes et nettoyage
+stage <- sapply(1:length(stage),function(i){
+  if(stage[i]=="NA") return(stageBis[i])
+  else return(stage[i])
+})  #la variable est composé de préférence du stade de la tumeur puis du stade clinique
+
+df_new <- data.frame("DSS"=data$DSS,"DSS.time"=data$DSS.time/365.25,   #construction de la data frame
+                     "PFI"=data$PFI,"PFI.time"=data$PFI.time/365.25,
+                     "T01"=pfiNotDead,"T01.time"=pfiNotDead.time,
+                     "T02"=dssDirect,"T02.time"=dssDirect.time,
+                     "T12"=dssRelapse,"T12.time"=dssRelapse.time,
+                     stage,"var_nulle"=as.character(covar),"gender"=data$gender,"age"=data$age_at_initial_pathologic_diagnosis,"type"=data$type)
+df_new <- df_new[-which(apply(df_new,1,function(x) any(is.na(x)))),]  #nettoyage des NA sans stage
+dim(df_new)
+df_new <- df_new[-which(is.element(df_new$stage,c("NA","other"))),] #nettoyage des NA du stage
+df_new$stage <- factor(df_new$stage,c("I - II","III - IV"))
+dim(df_new)
+df_new$age <- as.numeric(df_new$age)
+df_new <- df_new[-which(is.na(df_new$age)),] #nettoyage des NA de l'age
+dim(df_new)
+```
+
+```{r}
+library(msm)
+
+df_msm <- data.frame("indiv"=NA,"time"=NA,"state"=NA,"type"="NA")
+for(i in 1:nrow(df_new)){
+  df_msm <- rbind(df_msm,c(i,0,1,df_new$type[i])) 
+  if((df_new$T01.time[i] < df_new$T02.time[i]) & df_new$T01[i]==1){
+    df_msm <- rbind(df_msm,c(i,df_new$T01.time[i],2,df_new$type[i])) 
+    if(df_new$T12.time[i] > 0 & df_new$T12[i]==1) df_msm <- rbind(df_msm,c(i,df_new$T12.time[i]+df_new$T01.time[i],3,df_new$type[i]))
+    else df_msm <- rbind(df_msm,c(i,df_new$T12.time[i]+df_new$T01.time[i],2,df_new$type[i]))
+  }
+  else if(df_new$T02[i] == 1) df_msm <- rbind(df_msm,c(i,df_new$T02.time[i],3,df_new$type[i]))
+  else df_msm <- rbind(df_msm,c(i,df_new$T02.time[i],1,df_new$type[i]))
+}
+df_msm <- df_msm[-1,]
+df_msm$time <- as.numeric(df_msm$time)
+df_msm$state <- as.numeric(df_msm$state)
+df_msm$indiv <- as.numeric(df_msm$indiv)
+df_msm$var_nulle <- as.character(covar[df_msm$indiv])
+df_msm$stage <- as.character(stage[df_msm$indiv])
+df_msm$age <- as.numeric(df_new$age[df_msm$indiv])
+df_msm$gender <- as.character(df_new$gender[df_msm$indiv])
+
+statetable.msm(state, indiv, df_msm)
+Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~age)
+#test_msm
+
+#plot.prevalence.msm(test_msm)
+```
+
+###BRCA
+##a vide
+
+```{r}
+test_msm_brca <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3)
+test_msm_brca
+summary(test_msm_brca)
+plot.prevalence.msm(test_msm_brca)
+```
+
+
+##Var nulle
+
+```{r}
+test_msm_brca_nul <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~var_nulle)
+#test_msm_brca_nul
+summary(test_msm_brca_nul)$hazard$var_nulle1
+#plot.prevalence.msm(test_msm_brca_nul)
+```
+
+##Stage
+
+```{r}
+test_msm_brca_stage <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
+#test_msm_brca_stage
+summary(test_msm_brca_stage)$hazard$`stageIII - IV`
+#plot.prevalence.msm(test_msm_brca_stage)
+```
+
+###PAAD
+##a vide
+
+```{r}
+test_msm_paad <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'PAAD',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3)
+test_msm_paad
+plot.prevalence.msm(test_msm_paad)
+```
+
+##var nulle
+
+```{r}
+test_msm_paad_nul <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'PAAD',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~var_nulle)
+#test_msm_paad_nul
+summary(test_msm_paad_nul)$hazard$var_nulle1
+#plot.prevalence.msm(test_msm_paad_nul)
+```
+
+##Stage
+
+```{r}
+test_msm_paad_stage <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'PAAD',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
+summary(test_msm_paad_stage)$hazard$`stageIII - IV`
+#plot.prevalence.msm(test_msm_paad_stage)
+```
+
+###Comparaison
+
+##Stage
+
+```{r}
+summary(test_msm_brca_stage)$hazard$`stageIII - IV`
+summary(test_msm_paad_stage)$hazard$`stageIII - IV`
+
+```
+
+
+##var nulle
+```{r}
+summary(test_msm_brca_nul)$hazard$var_nulle1
+summary(test_msm_paad_nul)$hazard$var_nulle1
+
+```
+
