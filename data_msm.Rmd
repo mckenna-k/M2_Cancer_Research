@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+library(tidyverse)
 #Import les données
 data <- read.csv("data/TCGA-CDR_data.csv")
 # Creation de donnee simule
@@ -72,53 +73,56 @@ df_new$stage <- factor(df_new$stage,c("I - II","III - IV"))
 dim(df_new)
 df_new$age <- as.numeric(as.character(df_new$age))
 df_new <- df_new[-which(is.na(df_new$age)),] #nettoyage des NA de l'age
-df_new$type <- as.character(df_new$type)
+# Dois les converti depuis factors pour qu'ils soit bien selectionner dans le boucle for
+df_new <- df_new %>% mutate_at(c('type','stage','age','var_nulle','gender'), as.character)
 ```
 
 ```{r}
 library(msm)
 
 #* Section plus compliquer a comprendre
-#* Chaque personne peut atteindre max de 3 phase,  soit 1-1, 1-2-2, 1-3, ou 1-2-3 selon leur prognosis et leur censure. 
+#* Chaque personne peut atteindre max de 3 phase,  soit 1-1 (censure pour PFI et DSS), 1-2-2 (censure pour DSS), 
+#* 1-3 (pas de censure, PFI.time == DSS.time), ou 1-2-3 (pas de censure, PFI.time != DSS.time) selon leur prognosis et leur censure. 
 #* Donc il y a 3 matrice qui sont cree chaqu'un avec 4 colonne: indiv, time, state et type
 #* Dans un boucle for du longeur du dataframe des patients (qu'on n'a pas retirer) pour chaque matrix, on regarde quel phase doit placer le patient
 #* et on lui donne le bonne 'state'.  Si le personne n'a pas de troisieme phase, on met NA, qu'on enlevera apres.  
-state1 <- matrix(nrow =length(df_new$Patient),ncol = 4,dimnames = list(1:length(df_new$Patient),c("indiv","time","state","type"))) 
+state1 <- matrix(nrow =length(df_new$Patient),ncol = 8,dimnames = list(1:length(df_new$Patient),c("indiv","time","state","type",'var_nulle','stage','age','gender'))) 
 state1 <- state2 <- state3<- as.data.frame(state1)
 for(i in 1:length(df_new[,1])){
-  state1[i,] <- c(df_new$Patient[i],0,1,df_new$type[i])
+  state1[i,] <- c(df_new$Patient[i],0,1,df_new$type[i],covar[i],df_new$stage[i], df_new$age[i], df_new$gender[i])
   state2[i,] <- 
-    if((df_new$T01.time[i] < df_new$T02.time[i]) & df_new$T01[i]==1) c(df_new$Patient[i],df_new$T01.time[i],2,df_new$type[i])
-  else if (df_new$T02[i] == 1) c(df_new$Patient[i],df_new$T02.time[i],3,df_new$type[i])
-  else c(df_new$Patient[i],df_new$T02.time[i],1,df_new$type[i])
+    if((df_new$T01.time[i] < df_new$T02.time[i]) & df_new$T01[i]==1) c(df_new$Patient[i],df_new$T01.time[i],2,df_new$type[i],covar[i],df_new$stage[i], df_new$age[i], df_new$gender[i])
+  else if (df_new$T02[i] == 1) c(df_new$Patient[i],df_new$T02.time[i],3,df_new$type[i],covar[i],df_new$stage[i], df_new$age[i], df_new$gender[i])
+  else c(df_new$Patient[i],df_new$T02.time[i],1,df_new$type[i],covar[i],df_new$stage[i], df_new$age[i], df_new$gender[i])
   state3[i,] <- 
     if((df_new$T01.time[i] < df_new$T02.time[i]) & df_new$T01[i]==1){
-      if (df_new$T12.time[i] > 0 & df_new$T12[i]==1) c(df_new$Patient[i],df_new$T12.time[i]+df_new$T01.time[i],3,df_new$type[i])
-      else c(df_new$Patient[i],df_new$T12.time[i]+df_new$T01.time[i],2,df_new$type[i])
+      if (df_new$T12.time[i] > 0 & df_new$T12[i]==1) c(df_new$Patient[i],df_new$T12.time[i]+df_new$T01.time[i],3,df_new$type[i],covar[i],df_new$stage[i], df_new$age[i], df_new$gender[i])
+      else c(df_new$Patient[i],df_new$T12.time[i]+df_new$T01.time[i],2,df_new$type[i],covar[i],df_new$stage[i], df_new$age[i], df_new$gender[i])
     }
   else c(NA,NA,NA,NA)
 }
 
 # Combine les 3 matrices 
 # Ajoute les colonnes depuis df_new pour utiliser les covariants
+# Convert les donnees en bonne type de donnees
 # Enleve les donnees qui on un 'state' == NA
 df_msm <- rbind(state1,state2,state3)
-df_msm$indiv <- as.numeric(as.character(df_msm$indiv))
-df_msm$time <- as.numeric(as.character(df_msm$time))
-df_msm$state <- as.numeric(as.character(df_msm$state))
-df_msm$var_nulle <- as.character(covar[df_msm$indiv])
-df_msm$stage <- df_new$stage[df_msm$indiv]
-df_msm$age <- df_new$age[df_msm$indiv]
-df_msm$gender <- df_new$gender[df_msm$indiv]
+df_msm$indiv <- as.integer(df_msm$indiv)
+df_msm$time <- as.numeric(df_msm$time)
+df_msm$state <- as.numeric(df_msm$state)
+df_msm$var_nulle <- as.numeric(df_msm$var_nulle)
+df_msm$age <- as.numeric(df_msm$age)
+df_msm$gender <- as.factor(df_msm$gender)
+df_msm$stage <- as.factor(df_msm$stage)
 df_msm <- df_msm[-which(is.na(df_msm$state)),]
 
 # Ordonner le dataframe par individu et le temps de chaque transition.  
 df_msm <- df_msm[order(df_msm$indiv,df_msm$time),]
 
 
-
-
-
+# Test pour verifier les donnees sont correct
+# unique(df_msm[df_msm$stage=='III - IV'& df_msm$type=='PAAD',]$indiv)
+# unique(df_new[df_new$stage=='III - IV'& df_new$type=='PAAD',]$Patient)
 
 
 # Regarde le table de transition d'etats et cree un Q matrix de base.  
@@ -126,9 +130,8 @@ statetable.msm(state, indiv, df_msm)
 Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
 par(mfrow = c(1,1))
 test_msm <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~age)
-#test_msm
-
-#plot.prevalence.msm(test_msm)
+hazard.msm(test_msm)
+plot(test_msm, legend.pos = c(8,.5))
 ```
 
 ###BRCA
@@ -188,6 +191,40 @@ summary(test_msm_paad_stage)$hazard
 #plot.prevalence.msm(test_msm_paad_stage)
 ```
 
+
+
+###OV
+##a vide
+
+```{r}
+test_msm_ov <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'OV',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3)
+test_msm_ov
+summary(test_msm_ov)
+plot.prevalence.msm(test_msm_ov)
+#plot(test_msm_brca )
+```
+
+
+##Var nulle
+
+```{r}
+test_msm_ov_nul <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'OV',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~var_nulle)
+
+summary(test_msm_ov_nul)$hazard
+
+```
+
+##Stage
+
+```{r}
+test_msm_ov_stage <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'OV',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
+
+summary(test_msm_ov_stage)$hazard
+
+```
+
+
+
 ###Comparaison
 
 ##Stage
@@ -195,6 +232,7 @@ summary(test_msm_paad_stage)$hazard
 ```{r}
 summary(test_msm_brca_stage)$hazard
 summary(test_msm_paad_stage)$hazard
+summary(test_msm_ov_stage)$hazard
 
 ```
 
@@ -206,3 +244,21 @@ summary(test_msm_paad_nul)$hazard
 
 ```
 
+```{r}
+statetable.msm(state, indiv, df_msm)
+```
+
+
+
+```{r}
+# data_brca = df_new[df_new$type == 'BRCA',]
+# 
+# data_paad = df_new[df_new$type == 'PAAD',]
+# data_paad_2=data_paad[data_paad$stage=='III - IV',]
+# dim(data_paad_2)
+# unique(data_paad_2$Patient)
+# 
+# data_prov2 = df_msm[df_msm$type == 'PAAD',]
+# data_prov2 = data_prov2[data_prov2$stage=='III - IV',]
+# length(unique(data_prov2$indiv))
+```
