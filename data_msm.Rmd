@@ -230,11 +230,8 @@ summary(test_msm_ov_nul)$hazard
 
 ```{r}
 test_msm_ov_stage <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'OV',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
-
-summary(test_msm_ov_stage)$hazard
-
+test_msm_ov_stage
 ```
-
 
 
 # Comparaison
@@ -242,17 +239,36 @@ summary(test_msm_ov_stage)$hazard
 ## Stage
 
 ```{r}
-summary(test_msm_brca_stage)$hazard
-summary(test_msm_paad_stage)$hazard
-summary(test_msm_ov_stage)$hazard
+# summary(test_msm_brca_stage)$hazard
+# summary(test_msm_paad_stage)$hazard
+# summary(test_msm_ov_stage)$hazard
 
+# tableau des HR +IC
+cancer_type = c("BRCA","OV","PAAD")
+#trans= c("01","02","12")
+res_msm_stage = data.frame("Type"=NA,"HR T01"=NA, "low T01"= NA,"high T01"=NA, "HR T02"=NA, "low T02"= NA,"high T02"=NA,"HR T12"=NA, "low T12"= NA,"high T12"=NA)
+for(i in 1:length(cancer_type)){
+msm_stage = msm(state~time, subject=indiv,data = df_msm[df_msm$type == cancer_type[i],], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
+res_msm_stage[i,] =c ((cancer_type[i]), round(summary(msm_stage)$hazard$`stageIII - IV`[1],3), round(summary(msm_stage)$hazard$`stageIII - IV`[4],3), round(summary(msm_stage)$hazard$`stageIII - IV`[7],3), round(summary(msm_stage)$hazard$`stageIII - IV`[2],3), round(summary(msm_stage)$hazard$`stageIII - IV`[5],3), round(summary(msm_stage)$hazard$`stageIII - IV`[8],3), round(summary(msm_stage)$hazard$`stageIII - IV`[3],3), round(summary(msm_stage)$hazard$`stageIII - IV`[6],3), round(summary(msm_stage)$hazard$`stageIII - IV`[9],3))
+}
+res_msm_stage
 ```
 
 
 ## var nulle
 ```{r}
-summary(test_msm_brca_nul)$hazard
-summary(test_msm_paad_nul)$hazard
+# summary(test_msm_brca_nul)$hazard
+# summary(test_msm_paad_nul)$hazard
+
+# tableau des HR +IC
+cancer_type=c("BRCA","OV","PAAD")
+#trans= c("01","02","12")
+res_msm_var_nulle=data.frame("Type"=NA,"HR T01"=NA, "low T01"= NA,"high T01"=NA, "HR T02"=NA, "low T02"= NA,"high T02"=NA,"HR T12"=NA, "low T12"= NA,"high T12"=NA)
+for(i in 1:length(cancer_type)){
+  msm_var_nulle = msm(state~time, subject=indiv,data = df_msm[df_msm$type == cancer_type[i],], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~var_nulle)
+  res_msm_var_nulle[i,] = c((cancer_type[i]), round(summary(msm_var_nulle)$hazard$var_nulle[1],3), round(summary(msm_var_nulle)$hazard$var_nulle[4],3), round(summary(msm_var_nulle)$hazard$var_nulle[7],3), round(summary(msm_var_nulle)$hazard$var_nulle[2],3), round(summary(msm_var_nulle)$hazard$var_nulle[5],3), round(summary(msm_var_nulle)$hazard$var_nulle[8],3), round(summary(msm_var_nulle)$hazard$var_nulle[3],3), round(summary(msm_var_nulle)$hazard$var_nulle[6],3), round(summary(msm_var_nulle)$hazard$var_nulle[9],3))
+}
+res_msm_var_nulle
 
 ```
 
@@ -263,7 +279,7 @@ statetable.msm(state, indiv, df_msm)
 
 data_brca = df_msm[df_msm$type == 'BRCA',]
 statetable.msm(state, indiv, data_brca)
-data_brca_2=data_brca[data_brca$stage=='III - IV',]
+data_brca_2 = data_brca[data_brca$stage=='III - IV',]
 statetable.msm(state, indiv, data_brca_2)
 
 
@@ -274,7 +290,7 @@ statetable.msm(state, indiv, data_paad_2)
 
 data_ov = df_msm[df_msm$type == 'OV',]
 statetable.msm(state, indiv, data_ov)
-data_ov_2=data_ov[data_ov$stage=='III - IV',]
+data_ov_2 = data_ov[data_ov$stage=='III - IV',]
 statetable.msm(state, indiv, data_ov_2)
 
 ```
@@ -309,51 +325,67 @@ statetable.msm(state, indiv, data_ov_2)
 
 ### Modèles de cox Marginaux
 
+## Var nulle
+
 ```{r}
 
-# cox01_brca_stage = coxph(Surv(T01.time,T01)~stage, data = df_new[df_new$type == 'BRCA',])
-# summary(cox01_brca_stage)$coefficients[2:4]
-# 
-# cox02_brca_stage = coxph(Surv(T02.time,T02)~stage, data = df_new[df_new$type == 'BRCA',])
-# summary(cox02_brca_stage)$coefficients[2:4]
-# 
-# cox12_brca_stage = coxph(Surv(T12.time,T12)~stage, data = df_new[df_new$type == 'BRCA',])
-# summary(cox12_brca_stage)$coefficients[2:4]
-# 
-# 
-# cox01_ov_stage = coxph(Surv(T01.time,T01)~stage, data = df_new[df_new$type == 'OV',])
-# summary(cox01_ov_stage)$coefficients[2:4]
-# 
-# cox02_ov_stage = coxph(Surv(T02.time,T02)~stage, data = df_new[df_new$type == 'OV',])
-# summary(cox02_ov_stage)$coefficients[2:4]
-# summary(cox02_ov_stage)$conf.int[c(1,3,4)]
-# 
-# cox12_ov_stage = coxph(Surv(T12.time,T12)~stage, data = df_new[df_new$type == 'OV',])
-# sum = summary(cox12_ov_stage)
-
-
-#HR des modeles de cox marginaux
-cancer_type=c("BRCA","OV","PAAD")
+#HR des modeles de cox marginaux var nulle
+cancer_type = c("BRCA","OV","PAAD")
 #trans= c("01","02","12")
-res=data.frame("Type"=NA,"HR T01"=NA, "low T01"= NA,"high T01"=NA, "HR T02"=NA, "low T02"= NA,"high T02"=NA,"HR T12"=NA, "low T12"= NA,"high T12"=NA)
+res = data.frame("Type"=NA,"HR T01"=NA, "low T01"= NA,"high T01"=NA, "HR T02"=NA, "low T02"= NA,"high T02"=NA,"HR T12"=NA, "low T12"= NA,"high T12"=NA)
 for(i in 1:length(cancer_type)){
-    #for(j in 1:length(trans)){
-  cox01_stage = coxph(Surv(T01.time,T01)~stage, data = df_new[df_new$type == cancer_type[i],])
-  cox02_stage = coxph(Surv(T02.time,T02)~stage, data = df_new[df_new$type == cancer_type[i],])
-  cox12_stage = coxph(Surv(T12.time,T12)~stage, data = df_new[df_new$type == cancer_type[i],])
-  res[i,]=c((cancer_type[i]), round(summary(cox01_stage)$conf.int[1],3),round(summary(cox01_stage)$conf.int[3],3),round(summary(cox01_stage)$conf.int[4],3),
-            round(summary(cox02_stage)$conf.int[1],3),round(summary(cox02_stage)$conf.int[3],3),round(summary(cox02_stage)$conf.int[4],3),
-            round(summary(cox12_stage)$conf.int[1],3),round(summary(cox12_stage)$conf.int[3],3),round(summary(cox12_stage)$conf.int[4],3))
-            
+  cox01_var_nulle = coxph(Surv(T01.time,T01)~var_nulle, data = df_new[df_new$type == cancer_type[i],])
+  cox02_var_nulle = coxph(Surv(T02.time,T02)~var_nulle, data = df_new[df_new$type == cancer_type[i],])
+  cox12_var_nulle = coxph(Surv(T12.time,T12)~var_nulle, data = df_new[df_new$type == cancer_type[i],])
+  res[i,]=c((cancer_type[i]), round(summary(cox01_var_nulle)$conf.int[1],3),round(summary(cox01_var_nulle)$conf.int[3],3),round(summary(cox01_var_nulle)$conf.int[4],3),
+            round(summary(cox02_var_nulle)$conf.int[1],3),round(summary(cox02_var_nulle)$conf.int[3],3),round(summary(cox02_var_nulle)$conf.int[4],3),
+            round(summary(cox12_var_nulle)$conf.int[1],3),round(summary(cox12_var_nulle)$conf.int[3],3),round(summary(cox12_var_nulle)$conf.int[4],3))
+  
 }
 res
 
 #courbes KM
 layout(matrix(1:9,3, byrow = T), respect=TRUE)
 for(i in 1:length(cancer_type)){
-plot(survfit(Surv(T01.time,T01)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3), main=paste0(cancer_type[i],"T01"), mark.time = T, conf.int = T)
-plot(survfit(Surv(T02.time,T02)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T02"),mark.time = T, conf.int = T)
-plot(survfit(Surv(T12.time,T12)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T12"),mark.time = T, conf.int = T)
-c(plot)
+  plot(survfit(Surv(T01.time,T01)~var_nulle, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3), main=paste0(cancer_type[i],"T01"), mark.time = T, conf.int = T)
+  plot(survfit(Surv(T02.time,T02)~var_nulle, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T02"),mark.time = T, conf.int = T)
+  plot(survfit(Surv(T12.time,T12)~var_nulle, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T12"),mark.time = T, conf.int = T)
+  c(plot)
+}
+
+
+
+
+
+
+
+```
+
+## Stage
+
+```{r}
+
+#HR des modeles de cox marginaux stage
+cancer_type = c("BRCA","OV","PAAD")
+#trans= c("01","02","12")
+res = data.frame("Type"=NA,"HR T01"=NA, "low T01"= NA,"high T01"=NA, "HR T02"=NA, "low T02"= NA,"high T02"=NA,"HR T12"=NA, "low T12"= NA,"high T12"=NA)
+for(i in 1:length(cancer_type)){
+  cox01_stage = coxph(Surv(T01.time,T01)~stage, data = df_new[df_new$type == cancer_type[i],])
+  cox02_stage = coxph(Surv(T02.time,T02)~stage, data = df_new[df_new$type == cancer_type[i],])
+  cox12_stage = coxph(Surv(T12.time,T12)~stage, data = df_new[df_new$type == cancer_type[i],])
+  res[i,]=c((cancer_type[i]), round(summary(cox01_stage)$conf.int[1],3),round(summary(cox01_stage)$conf.int[3],3),round(summary(cox01_stage)$conf.int[4],3),
+            round(summary(cox02_stage)$conf.int[1],3),round(summary(cox02_stage)$conf.int[3],3),round(summary(cox02_stage)$conf.int[4],3),
+            round(summary(cox12_stage)$conf.int[1],3),round(summary(cox12_stage)$conf.int[3],3),round(summary(cox12_stage)$conf.int[4],3))
+  
+}
+res
+
+#courbes KM
+layout(matrix(1:9,3, byrow = T), respect=TRUE)
+for(i in 1:length(cancer_type)){
+  plot(survfit(Surv(T01.time,T01)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3), main=paste0(cancer_type[i],"T01"), mark.time = T, conf.int = T)
+  plot(survfit(Surv(T02.time,T02)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T02"),mark.time = T, conf.int = T)
+  plot(survfit(Surv(T12.time,T12)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T12"),mark.time = T, conf.int = T)
+  c(plot)
 }
 ```
