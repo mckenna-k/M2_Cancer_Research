@@ -16,6 +16,8 @@ knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, 
 
 ```{r}
 library(tidyverse)
+library(msm)
+library(survival)
 #Import les données
 data <- read.csv("data/TCGA-CDR_data.csv")
 # Creation de donnee simule
@@ -83,7 +85,7 @@ df_new <- df_new %>% mutate_at(c('type','stage','age','var_nulle','gender'), as.
 ```
 
 ```{r}
-library(msm)
+
 
 #* Section plus compliquer a comprendre
 #* Chaque personne peut atteindre max de 3 phase,  soit 1-1 (censure pour PFI et DSS), 1-2-2 (censure pour DSS), 
@@ -255,14 +257,33 @@ summary(test_msm_paad_nul)$hazard
 ```
 
 ```{r}
+#effectifs des transitions
+
 statetable.msm(state, indiv, df_msm)
+
+data_brca = df_msm[df_msm$type == 'BRCA',]
+statetable.msm(state, indiv, data_brca)
+data_brca_2=data_brca[data_brca$stage=='III - IV',]
+statetable.msm(state, indiv, data_brca_2)
+
+
+data_paad = df_msm[df_msm$type == 'PAAD',]
+statetable.msm(state, indiv, data_paad)
+data_paad_2=data_paad[data_paad$stage=='III - IV',]
+statetable.msm(state, indiv, data_paad_2)
+
+data_ov = df_msm[df_msm$type == 'OV',]
+statetable.msm(state, indiv, data_ov)
+data_ov_2=data_ov[data_ov$stage=='III - IV',]
+statetable.msm(state, indiv, data_ov_2)
+
 ```
 
 
 
 ```{r}
+# controle effectifs de_new df_msm
 # data_brca = df_new[df_new$type == 'BRCA',]
-# 
 # data_paad = df_new[df_new$type == 'PAAD',]
 # data_paad_2=data_paad[data_paad$stage=='III - IV',]
 # dim(data_paad_2)
@@ -271,4 +292,68 @@ statetable.msm(state, indiv, df_msm)
 # data_prov2 = df_msm[df_msm$type == 'PAAD',]
 # data_prov2 = data_prov2[data_prov2$stage=='III - IV',]
 # length(unique(data_prov2$indiv))
+
+# data_paad = df_new[df_new$type == 'OV',]
+# data_paad_2=data_paad[data_paad$stage=='III - IV',]
+# dim(data_paad_2)
+# unique(data_paad_2$Patient)
+# 
+# data_prov2 = df_msm[df_msm$type == 'OV',]
+# data_prov2 = data_prov2[data_prov2$stage=='III - IV',]
+# length(unique(data_prov2$indiv))
+
+# data_prov2 = df_msm[df_msm$type == 'OV',]
+# data_prov2 = data_prov2[data_prov2$stage=='I - II',]
+# length(unique(data_prov2$indiv))
+```
+
+### Modèles de cox Marginaux
+
+```{r}
+
+# cox01_brca_stage = coxph(Surv(T01.time,T01)~stage, data = df_new[df_new$type == 'BRCA',])
+# summary(cox01_brca_stage)$coefficients[2:4]
+# 
+# cox02_brca_stage = coxph(Surv(T02.time,T02)~stage, data = df_new[df_new$type == 'BRCA',])
+# summary(cox02_brca_stage)$coefficients[2:4]
+# 
+# cox12_brca_stage = coxph(Surv(T12.time,T12)~stage, data = df_new[df_new$type == 'BRCA',])
+# summary(cox12_brca_stage)$coefficients[2:4]
+# 
+# 
+# cox01_ov_stage = coxph(Surv(T01.time,T01)~stage, data = df_new[df_new$type == 'OV',])
+# summary(cox01_ov_stage)$coefficients[2:4]
+# 
+# cox02_ov_stage = coxph(Surv(T02.time,T02)~stage, data = df_new[df_new$type == 'OV',])
+# summary(cox02_ov_stage)$coefficients[2:4]
+# summary(cox02_ov_stage)$conf.int[c(1,3,4)]
+# 
+# cox12_ov_stage = coxph(Surv(T12.time,T12)~stage, data = df_new[df_new$type == 'OV',])
+# sum = summary(cox12_ov_stage)
+
+
+#HR des modeles de cox marginaux
+cancer_type=c("BRCA","OV","PAAD")
+#trans= c("01","02","12")
+res=data.frame("Type"=NA,"HR T01"=NA, "low T01"= NA,"high T01"=NA, "HR T02"=NA, "low T02"= NA,"high T02"=NA,"HR T12"=NA, "low T12"= NA,"high T12"=NA)
+for(i in 1:length(cancer_type)){
+    #for(j in 1:length(trans)){
+  cox01_stage = coxph(Surv(T01.time,T01)~stage, data = df_new[df_new$type == cancer_type[i],])
+  cox02_stage = coxph(Surv(T02.time,T02)~stage, data = df_new[df_new$type == cancer_type[i],])
+  cox12_stage = coxph(Surv(T12.time,T12)~stage, data = df_new[df_new$type == cancer_type[i],])
+  res[i,]=c((cancer_type[i]), round(summary(cox01_stage)$conf.int[1],3),round(summary(cox01_stage)$conf.int[3],3),round(summary(cox01_stage)$conf.int[4],3),
+            round(summary(cox02_stage)$conf.int[1],3),round(summary(cox02_stage)$conf.int[3],3),round(summary(cox02_stage)$conf.int[4],3),
+            round(summary(cox12_stage)$conf.int[1],3),round(summary(cox12_stage)$conf.int[3],3),round(summary(cox12_stage)$conf.int[4],3))
+            
+}
+res
+
+#courbes KM
+layout(matrix(1:9,3, byrow = T), respect=TRUE)
+for(i in 1:length(cancer_type)){
+plot(survfit(Surv(T01.time,T01)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3), main=paste0(cancer_type[i],"T01"), mark.time = T, conf.int = T)
+plot(survfit(Surv(T02.time,T02)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T02"),mark.time = T, conf.int = T)
+plot(survfit(Surv(T12.time,T12)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T12"),mark.time = T, conf.int = T)
+c(plot)
+}
 ```
