@@ -1,12 +1,17 @@
 ---
 title: "Package MSM"
 author: "Shuyu, Marame, Kevin, Théo, Florence"
-date: "01/02/2022"
-output: html_document
+date: "`r Sys.Date()`"
+output: 
+  rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=TRUE, results="verbatim")
 ```
 
 ```{r}
@@ -131,13 +136,15 @@ Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
 par(mfrow = c(1,1))
 test_msm <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~age)
 hazard.msm(test_msm)
+layout(1, respect=TRUE)
 plot(test_msm, legend.pos = c(8,.5))
 ```
 
-###BRCA
-##a vide
+# BRCA
+## a vide
 
 ```{r}
+layout(matrix(1:3,1), respect=TRUE)
 test_msm_brca <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3)
 test_msm_brca
 summary(test_msm_brca)
@@ -146,7 +153,7 @@ plot.prevalence.msm(test_msm_brca)
 ```
 
 
-##Var nulle
+## Var nulle
 
 ```{r}
 test_msm_brca_nul <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~var_nulle)
@@ -155,7 +162,7 @@ summary(test_msm_brca_nul)$hazard
 #plot.prevalence.msm(test_msm_brca_nul)
 ```
 
-##Stage
+## Stage
 
 ```{r}
 test_msm_brca_stage <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
@@ -165,25 +172,27 @@ summary(test_msm_brca_stage)$hazard
 
 ```
 
-###PAAD
-##a vide
+# PAAD
+## a vide
 
 ```{r}
+layout(matrix(1:3,1), respect=TRUE)
 test_msm_paad <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'PAAD',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3)
 test_msm_paad
 plot.prevalence.msm(test_msm_paad)
 ```
 
-##var nulle
+## var nulle
 
 ```{r}
+layout(matrix(1:3,1), respect=TRUE)
 test_msm_paad_nul <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'PAAD',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~var_nulle)
 #test_msm_paad_nul
 summary(test_msm_paad_nul)$hazard
 #plot.prevalence.msm(test_msm_paad_nul)
 ```
 
-##Stage
+## Stage
 
 ```{r}
 test_msm_paad_stage <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'PAAD',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
@@ -193,10 +202,11 @@ summary(test_msm_paad_stage)$hazard
 
 
 
-###OV
-##a vide
+# OV
+## a vide
 
 ```{r}
+layout(matrix(1:3,1), respect=TRUE)
 test_msm_ov <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'OV',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3)
 test_msm_ov
 summary(test_msm_ov)
@@ -205,7 +215,7 @@ plot.prevalence.msm(test_msm_ov)
 ```
 
 
-##Var nulle
+## Var nulle
 
 ```{r}
 test_msm_ov_nul <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'OV',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~var_nulle)
@@ -214,7 +224,7 @@ summary(test_msm_ov_nul)$hazard
 
 ```
 
-##Stage
+## Stage
 
 ```{r}
 test_msm_ov_stage <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'OV',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
@@ -225,9 +235,9 @@ summary(test_msm_ov_stage)$hazard
 
 
 
-###Comparaison
+# Comparaison
 
-##Stage
+## Stage
 
 ```{r}
 summary(test_msm_brca_stage)$hazard
@@ -237,7 +247,7 @@ summary(test_msm_ov_stage)$hazard
 ```
 
 
-##var nulle
+## var nulle
 ```{r}
 summary(test_msm_brca_nul)$hazard
 summary(test_msm_paad_nul)$hazard
