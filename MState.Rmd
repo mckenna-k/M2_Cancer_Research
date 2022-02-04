@@ -17,7 +17,7 @@ load("simu.rda")
 library("mstate")
 library(readxl)
 library(tidyverse)
-data<- read_excel("TCGA-CDR-SupplementalTableS1 (1).xlsx", sheet = "TCGA-CDR")
+data<- read_excel("TCGA-CDR-SupplementalTableS1.xlsx", sheet = "TCGA-CDR")
 data$DSS.time <- as.numeric(data$DSS.time) #en entrée, les valeurs peuvent être des caractères
 data$DSS <- as.numeric(data$DSS)
 data$PFI.time <- as.numeric(data$PFI.time)
