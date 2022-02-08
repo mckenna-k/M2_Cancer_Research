@@ -1,0 +1,562 @@
+---
+title: "Package MSM"
+author: "Shuyu, Marame, Kevin, Théo, Florence"
+date: "`r Sys.Date()`"
+output: 
+  rmarkdown::html_document:
+  toc: true
+  toc_float: true
+  toc_depth: 3
+  number_sections: true
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=TRUE, results="verbatim")
+library(tidyverse)
+library(msm)
+library(survival)
+```
+
+```{r}
+#Import les données
+data = openxlsx::read.xlsx("TCGA-CDR-SupplementalTableS1.xlsx", sheet = "TCGA-CDR", na.strings="#N/A")
+# verification des colonnes numerique depuis les facteurs.
+if (!is.numeric(data$DSS.time)) {stop("DSS.time is not numeric.")}
+if (!is.numeric(data$DSS     )) {stop("DSS      is not numeric.")}
+if (!is.numeric(data$PFI.time)) {stop("PFI.time is not numeric.")}
+if (!is.numeric(data$PFI     )) {stop("PFI      is not numeric.")}
+# Change les valeurs de DSS.time et PFI.time au NA, (Car pas de sens un temps 0)
+data$DSS.time[data$DSS.time==0] <- NA #enlever les suivis nuls
+data$PFI.time[data$PFI.time==0] <- NA #enlever les suivis nuls
+# ou si PFI.time est plus grand que DSS.time car aussi pas de sens.  
+sum(data$PFI.time > data$DSS.time, na.rm=TRUE)
+data[!is.na(data$PFI.time > data$DSS.time) & data$PFI.time > data$DSS.time,c("DSS.time", "PFI.time")]
+data[!is.na(data$PFI.time > data$DSS.time) & data$PFI.time > data$DSS.time,c("DSS.time", "PFI.time")] = NA
+data[!is.na(data$PFI.time > data$DSS.time) & data$PFI.time > data$DSS.time,c("DSS.time", "PFI.time")]
+dim(data)
+# Creation de colonnes pour la création de dataframe de matrice de transition
+pfiNotDead.time <- data$PFI.time/365.25
+pfiNotDead <- data$PFI
+pfiNotDead[data$PFI.time==data$DSS.time] <- 0
+dssDirect.time <- data$DSS.time/365.25
+dssDirect <- data$DSS
+dssDirect[!data$PFI.time==data$DSS.time] <- 0
+dssRelapse.time <- (data$DSS.time-data$PFI.time)/365.25
+dssRelapse.time[pfiNotDead==0] <- 0
+dssRelapse <- data$DSS
+dssRelapse[data$PFI.time==data$DSS.time] <- 0
+# Co variates
+# Creation de donnee simule
+covar <-  sample(c(0,1),11160,replace=TRUE)
+# Recode les levels du stage du tumeur pour avoir moins de niveau.  
+# Fait qu'il y a seulement stage 1/2, 3/4 et NA; ou 1/2, 3/4, autre et NA  
+stage <- as.factor(data$ajcc_pathologic_tumor_stage)
+levels(stage) <- c("NA","NA","NA","NA","I - II","I - II","other","I - II","I - II","I - II","I - II","I - II","I - II","I - II","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","other")
+stageBis <- as.factor(data$clinical_stage)
+levels(stageBis) <- c("NA","NA","NA","I - II","I - II","I - II","III - IV","III - IV","III - IV",rep("I - II",14),rep("III - IV",6),"I - II",rep("III - IV",4))
+stage <- sapply(1:length(stage),function(i){
+  if(stage[i]=="NA") return(stageBis[i])
+  else return(stage[i])
+})
+# Creation d'un nouveau dataframe plus petit et facile a manipuler.  
+df_new <- data.frame(
+  Patient=data$X,
+  DSS=data$DSS   , DSS.time=data$DSS.time/365.25 ,
+  PFI=data$PFI   , PFI.time=data$PFI.time/365.25 ,
+  T01=pfiNotDead , T01.time=pfiNotDead.time      ,
+  T02=dssDirect  , T02.time=dssDirect.time       ,
+  T12=dssRelapse , T12.time=dssRelapse.time      ,
+  stage=stage                                    ,
+  var_nulle=as.character(covar)                  ,
+  gender=data$gender                             ,
+  age=data$age_at_initial_pathologic_diagnosis   ,
+  type=data$type
+)
+# Enleve les NA
+df_new = df_new[!apply(is.na(df_new), 1, any),]
+dim(df_new)
+# Enleve les stage qui ont le niveau NA ou other
+df_new <- df_new[-which(is.element(df_new$stage,c("NA","other"))),]
+df_new$stage <- factor(df_new$stage,c("I - II","III - IV"))
+dim(df_new)
+df_new$age <- as.numeric(as.character(df_new$age))
+df_new = df_new[!is.na(df_new$age),] #nettoyage des NA de l'age
+# Dois les converti depuis factors pour qu'ils soit bien selectionner dans le boucle for
+df_new <- df_new %>% mutate_at(c('type','stage','age','var_nulle','gender'), as.character)
+```
+
+```{r}
+#* Section plus compliquer a comprendre
+#* Chaque personne peut atteindre max de 3 phase,  soit 1-1 (censure pour PFI et DSS), 1-2-2 (censure pour DSS), 
+#* 1-3 (pas de censure, PFI.time == DSS.time), ou 1-2-3 (pas de censure, PFI.time != DSS.time) selon leur prognosis et leur censure. 
+#* Donc il y a 3 matrice qui sont cree chaqu'un avec 4 colonne: indiv, time, state et type
+#* Dans un boucle for du longeur du dataframe des patients (qu'on n'a pas retirer) pour chaque matrix, on regarde quel phase doit placer le patient
+#* et on lui donne le bonne 'state'.  Si le personne n'a pas de troisieme phase, on met NA, qu'on enlevera apres.  
+indiv_msm <- c((1:nrow(df_new)),
+               (1:nrow(df_new))[(df_new$T01.time < df_new$T02.time) & df_new$T01==1],
+               (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==1],
+               (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==0],
+               (1:nrow(df_new))[df_new$T02 == 1],
+               (1:nrow(df_new))[df_new$T02 == 0 & df_new$T01==0])
+state_msm <- c(rep(1,nrow(df_new)),
+               rep(2,sum((df_new$T01.time < df_new$T02.time) & df_new$T01==1)),
+               rep(3,sum(df_new$T12.time > 0 & df_new$T12==1)),
+               rep(2,sum(df_new$T12.time > 0 & df_new$T12==0)),
+               rep(3,sum(df_new$T02 == 1)),
+               rep(1,sum(df_new$T02 == 0 & df_new$T01==0)))
+time_msm <- c(rep(0,nrow(df_new)),
+              df_new$T01.time[(df_new$T01.time < df_new$T02.time) & df_new$T01==1],
+              (df_new$T12.time + df_new$T01.time)[df_new$T12.time > 0 & df_new$T12==1],
+              (df_new$T12.time + df_new$T01.time)[df_new$T12.time > 0 & df_new$T12==0],
+              df_new$T02.time[df_new$T02 == 1],
+              df_new$T02.time[df_new$T02 == 0 & df_new$T01==0])
+df_msm <- data.frame("indiv"=indiv_msm,"state"=state_msm,"time"=time_msm)
+df_msm <- df_msm[order(df_msm$indiv,df_msm$time),]
+rownames(df_msm) <- 1:nrow(df_msm)
+df_msm$type <- as.character(df_new$type[df_msm$indiv])
+# Combine les 3 matrices 
+# Ajoute les colonnes depuis df_new pour utiliser les covariants
+# Convert les donnees en bonne type de donnees
+# Enleve les donnees qui on un 'state' == NA
+df_msm$var_nulle <- as.character(covar[df_msm$indiv])
+df_msm$stage <- as.character(df_new$stage[df_msm$indiv])
+df_msm$T01 <- as.character(df_new$T01[df_msm$indiv])
+df_msm$T02 <- as.character(df_new$T02[df_msm$indiv])
+df_msm$age <- as.numeric(df_new$age[df_msm$indiv])
+# Test pour verifier les donnees sont correct
+# unique(df_msm[df_msm$stage=='III - IV'& df_msm$type=='PAAD',]$indiv)
+# unique(df_new[df_new$stage=='III - IV'& df_new$type=='PAAD',]$Patient)
+# Regarde le table de transition d'etats et cree un Q matrix de base.  
+statetable.msm(state, indiv, df_msm)
+Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
+par(mfrow = c(1,1))
+test_msm <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~age)
+hazard.msm(test_msm)
+layout(1, respect=TRUE)
+plot(test_msm, legend.pos = c(8,.5))
+```
+
+# BRCA
+## a vide
+
+```{r}
+layout(matrix(1:3,1), respect=TRUE)
+test_msm_brca <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3)
+test_msm_brca
+summary(test_msm_brca)
+plot.prevalence.msm(test_msm_brca)
+#plot(test_msm_brca )
+```
+
+
+## Var nulle
+
+```{r}
+test_msm_brca_nul <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~var_nulle)
+#test_msm_brca_nul
+summary(test_msm_brca_nul)$hazard
+#plot.prevalence.msm(test_msm_brca_nul)
+```
+
+## Stage
+
+```{r}
+test_msm_brca_stage <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'BRCA',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
+#test_msm_brca_stage
+summary(test_msm_brca_stage)$hazard
+#plot.prevalence.msm(test_msm_brca_stage)
+```
+
+# PAAD
+## a vide
+
+```{r}
+layout(matrix(1:3,1), respect=TRUE)
+test_msm_paad <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'PAAD',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3)
+test_msm_paad
+plot.prevalence.msm(test_msm_paad)
+```
+
+## var nulle
+
+```{r}
+layout(matrix(1:3,1), respect=TRUE)
+test_msm_paad_nul <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'PAAD',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~var_nulle)
+#test_msm_paad_nul
+summary(test_msm_paad_nul)$hazard
+#plot.prevalence.msm(test_msm_paad_nul)
+```
+
+## Stage
+
+```{r}
+test_msm_paad_stage <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'PAAD',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
+summary(test_msm_paad_stage)$hazard
+#plot.prevalence.msm(test_msm_paad_stage)
+```
+
+
+
+# OV
+## a vide
+
+```{r}
+layout(matrix(1:3,1), respect=TRUE)
+test_msm_ov <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'OV',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3)
+test_msm_ov
+summary(test_msm_ov)
+plot.prevalence.msm(test_msm_ov)
+#plot(test_msm_brca )
+```
+
+
+## Var nulle
+
+```{r}
+test_msm_ov_nul <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'OV',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~var_nulle)
+summary(test_msm_ov_nul)$hazard
+```
+
+## Stage
+
+```{r}
+test_msm_ov_stage <- msm(state~time, subject=indiv,data = df_msm[df_msm$type == 'OV',], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
+test_msm_ov_stage
+```
+
+
+# Comparaison
+
+## Stage
+
+```{r}
+# summary(test_msm_brca_stage)$hazard
+# summary(test_msm_paad_stage)$hazard
+# summary(test_msm_ov_stage)$hazard
+# tableau des HR +IC
+cancer_type = c("BRCA","OV","PAAD")
+#trans= c("01","02","12")
+res_msm_stage = data.frame("Type"=NA,"HR T01"=NA, "low T01"= NA,"high T01"=NA, "HR T02"=NA, "low T02"= NA,"high T02"=NA,"HR T12"=NA, "low T12"= NA,"high T12"=NA)
+for(i in 1:length(cancer_type)){
+  msm_stage = msm(state~time, subject=indiv,data = df_msm[df_msm$type == cancer_type[i],], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
+  res_msm_stage[i,] =c ((cancer_type[i]), round(summary(msm_stage)$hazard$`stageIII - IV`[1],3), round(summary(msm_stage)$hazard$`stageIII - IV`[4],3), round(summary(msm_stage)$hazard$`stageIII - IV`[7],3), round(summary(msm_stage)$hazard$`stageIII - IV`[2],3), round(summary(msm_stage)$hazard$`stageIII - IV`[5],3), round(summary(msm_stage)$hazard$`stageIII - IV`[8],3), round(summary(msm_stage)$hazard$`stageIII - IV`[3],3), round(summary(msm_stage)$hazard$`stageIII - IV`[6],3), round(summary(msm_stage)$hazard$`stageIII - IV`[9],3))
+}
+res_msm_stage
+```
+
+
+## var nulle
+```{r}
+# summary(test_msm_brca_nul)$hazard
+# summary(test_msm_paad_nul)$hazard
+# tableau des HR +IC
+cancer_type=c("BRCA","OV","PAAD")
+#trans= c("01","02","12")
+res_msm_var_nulle=data.frame("Type"=NA,"HR T01"=NA, "low T01"= NA,"high T01"=NA, "HR T02"=NA, "low T02"= NA,"high T02"=NA,"HR T12"=NA, "low T12"= NA,"high T12"=NA)
+for(i in 1:length(cancer_type)){
+  msm_var_nulle = msm(state~time, subject=indiv,data = df_msm[df_msm$type == cancer_type[i],], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~var_nulle)
+  res_msm_var_nulle[i,] = c((cancer_type[i]), round(summary(msm_var_nulle)$hazard$var_nulle[1],3), round(summary(msm_var_nulle)$hazard$var_nulle[4],3), round(summary(msm_var_nulle)$hazard$var_nulle[7],3), round(summary(msm_var_nulle)$hazard$var_nulle[2],3), round(summary(msm_var_nulle)$hazard$var_nulle[5],3), round(summary(msm_var_nulle)$hazard$var_nulle[8],3), round(summary(msm_var_nulle)$hazard$var_nulle[3],3), round(summary(msm_var_nulle)$hazard$var_nulle[6],3), round(summary(msm_var_nulle)$hazard$var_nulle[9],3))
+}
+res_msm_var_nulle
+```
+
+```{r}
+#effectifs des transitions
+statetable.msm(state, indiv, df_msm)
+data_brca = df_msm[df_msm$type == 'BRCA',]
+statetable.msm(state, indiv, data_brca)
+data_brca_2 = data_brca[data_brca$stage=='III - IV',]
+statetable.msm(state, indiv, data_brca_2)
+data_paad = df_msm[df_msm$type == 'PAAD',]
+statetable.msm(state, indiv, data_paad)
+data_paad_2=data_paad[data_paad$stage=='III - IV',]
+statetable.msm(state, indiv, data_paad_2)
+data_ov = df_msm[df_msm$type == 'OV',]
+statetable.msm(state, indiv, data_ov)
+data_ov_2 = data_ov[data_ov$stage=='III - IV',]
+statetable.msm(state, indiv, data_ov_2)
+```
+
+
+
+```{r}
+# controle effectifs de_new df_msm
+# data_brca = df_new[df_new$type == 'BRCA',]
+# data_paad = df_new[df_new$type == 'PAAD',]
+# data_paad_2=data_paad[data_paad$stage=='III - IV',]
+# dim(data_paad_2)
+# unique(data_paad_2$Patient)
+# 
+# data_prov2 = df_msm[df_msm$type == 'PAAD',]
+# data_prov2 = data_prov2[data_prov2$stage=='III - IV',]
+# length(unique(data_prov2$indiv))
+# data_paad = df_new[df_new$type == 'OV',]
+# data_paad_2=data_paad[data_paad$stage=='III - IV',]
+# dim(data_paad_2)
+# unique(data_paad_2$Patient)
+# 
+# data_prov2 = df_msm[df_msm$type == 'OV',]
+# data_prov2 = data_prov2[data_prov2$stage=='III - IV',]
+# length(unique(data_prov2$indiv))
+# data_prov2 = df_msm[df_msm$type == 'OV',]
+# data_prov2 = data_prov2[data_prov2$stage=='I - II',]
+# length(unique(data_prov2$indiv))
+```
+
+### Modèles de cox Marginaux
+
+## Var nulle
+
+```{r}
+#HR des modeles de cox marginaux var nulle
+cancer_type = c("BRCA","OV","PAAD")
+#trans= c("01","02","12")
+res = data.frame("Type"=NA,"HR T01"=NA, "low T01"= NA,"high T01"=NA, "HR T02"=NA, "low T02"= NA,"high T02"=NA,"HR T12"=NA, "low T12"= NA,"high T12"=NA)
+for(i in 1:length(cancer_type)){
+  cox01_var_nulle = coxph(Surv(T01.time,T01)~var_nulle, data = df_new[df_new$type == cancer_type[i],])
+  cox02_var_nulle = coxph(Surv(T02.time,T02)~var_nulle, data = df_new[df_new$type == cancer_type[i],])
+  cox12_var_nulle = coxph(Surv(T12.time,T12)~var_nulle, data = df_new[df_new$type == cancer_type[i],])
+  res[i,]=c((cancer_type[i]), round(summary(cox01_var_nulle)$conf.int[1],3),round(summary(cox01_var_nulle)$conf.int[3],3),round(summary(cox01_var_nulle)$conf.int[4],3),
+            round(summary(cox02_var_nulle)$conf.int[1],3),round(summary(cox02_var_nulle)$conf.int[3],3),round(summary(cox02_var_nulle)$conf.int[4],3),
+            round(summary(cox12_var_nulle)$conf.int[1],3),round(summary(cox12_var_nulle)$conf.int[3],3),round(summary(cox12_var_nulle)$conf.int[4],3))
+  
+}
+res
+#courbes KM
+layout(matrix(1:9,3, byrow = T), respect=TRUE)
+for(i in 1:length(cancer_type)){
+  plot(survfit(Surv(T01.time,T01)~var_nulle, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3), main=paste0(cancer_type[i],"T01"), mark.time = T, conf.int = T)
+  plot(survfit(Surv(T02.time,T02)~var_nulle, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T02"),mark.time = T, conf.int = T)
+  plot(survfit(Surv(T12.time,T12)~var_nulle, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T12"),mark.time = T, conf.int = T)
+  c(plot)
+}
+```
+
+## Stage
+
+```{r}
+#HR des modeles de cox marginaux stage
+cancer_type = c("BRCA","OV","PAAD")
+#trans= c("01","02","12")
+res = data.frame("Type"=NA,"HR T01"=NA, "low T01"= NA,"high T01"=NA, "HR T02"=NA, "low T02"= NA,"high T02"=NA,"HR T12"=NA, "low T12"= NA,"high T12"=NA)
+for(i in 1:length(cancer_type)){
+  cox01_stage = coxph(Surv(T01.time,T01)~stage, data = df_new[df_new$type == cancer_type[i],])
+  cox02_stage = coxph(Surv(T02.time,T02)~stage, data = df_new[df_new$type == cancer_type[i],])
+  cox12_stage = coxph(Surv(T12.time,T12)~stage, data = df_new[df_new$type == cancer_type[i],])
+  res[i,]=c((cancer_type[i]), round(summary(cox01_stage)$conf.int[1],3),round(summary(cox01_stage)$conf.int[3],3),round(summary(cox01_stage)$conf.int[4],3),
+            round(summary(cox02_stage)$conf.int[1],3),round(summary(cox02_stage)$conf.int[3],3),round(summary(cox02_stage)$conf.int[4],3),
+            round(summary(cox12_stage)$conf.int[1],3),round(summary(cox12_stage)$conf.int[3],3),round(summary(cox12_stage)$conf.int[4],3))
+  
+}
+res
+#courbes KM
+layout(matrix(1:9,3, byrow = T), respect=TRUE)
+for(i in 1:length(cancer_type)){
+  plot(survfit(Surv(T01.time,T01)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3), main=paste0(cancer_type[i],"T01"), mark.time = T, conf.int = T)
+  plot(survfit(Surv(T02.time,T02)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T02"),mark.time = T, conf.int = T)
+  plot(survfit(Surv(T12.time,T12)~stage, data = df_new[df_new$type == cancer_type[i],]), col=c(2,3),main=paste0(cancer_type[i],"T12"),mark.time = T, conf.int = T)
+  c(plot)
+}
+```
+
+# Récapitulatif + bootstrap
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE}
+library(plyr)
+
+mstate_simple <- function(name){
+  df_new[["covar"]] <- df_new[[name]]
+  tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+  msebmt <- msprep(data = df_new[df_new$type=="OV",], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+  covs <- c("covar")
+  msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+  msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+  c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+  a <- summary(c_stage)$conf.int[,-2]
+  colnames(a) <- c("HR","L","U")
+  return(a)
+}
+
+msm_boot <- function(df_msm,name,n){
+  m <- length(unique(df_msm$indiv))
+  res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+  for(i in 1:n){
+    ind  <- sample(unique(df_msm$indiv),size = m,replace = TRUE) 
+    cav.msm <- msm(state~time, subject=indiv,data = df_msm[is.element(df_msm$indiv,ind),],gen.inits = TRUE,qmatrix= Qmat, deathexact = 3, covariates = as.formula(paste0("~",name)))
+    res[i,] <- as.vector(hazard.msm(cav.msm)[[1]][,1])
+  }
+  return(res)
+}
+
+mstate_boot <- function(name,name_covar,n){
+  res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+  tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+  df_new[["covar"]] <- df_new[[name_covar]]
+  df_mstate <- df_new[df_new$type==name,]
+  covs <- c("covar")
+  m <- nrow(df_mstate)
+  for(i in 1:n){
+    ind  <- sample(1:nrow(df_mstate),size = m,replace = TRUE) 
+    msebmt <- msprep(data = df_mstate[ind,], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+    msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+    msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+    c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+    res[i,] <- as.vector(summary(c_stage)$conf.int[,1])
+  }
+  return(res)
+}
+```
+
+# BRCA
+
+```{r brca,echo=FALSE,warning=FALSE,message=FALSE}
+#####################
+library(msm)
+library(mstate)
+
+df_result <- data.frame("HR"=NA,"L"=NA,"U"=NA)
+
+df_msm_BRCA <- df_msm[df_msm$type=="BRCA",]
+Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_BRCA,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~stage)
+df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII - IV`)
+df_result <- rbind(df_result,mstate_simple("stage"))
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_BRCA,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~var_nulle)
+df_result <- rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`var_nulle1`))
+df_result <- rbind(df_result,mstate_simple("var_nulle"))
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_BRCA,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~T01)
+df_result <- plyr::rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`T011`))
+df_result <- rbind(df_result,mstate_simple("T01"))
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_BRCA,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~T02)
+df_result <- rbind(df_result,summary(test_msm)$hazard$`T021`)
+df_result <- rbind(df_result,mstate_simple("T02"))
+
+df_result <- df_result[-1,]
+rownames(df_result) <- as.vector(sapply(c("msm - stage","mstate - stage","msm - aléatoire","mstate - aléatoire","msm - T01","mstate - T01","msm - T02","mstate - T02"),function(x) paste(x,c("1 -> 2","1 -> 3","2 -> 3"))))
+df_result <- df_result[c(1,4,2,5,3,6,7,10,8,11,9,12,13,16,14,17,15,18,19,22,20,23,21,24),]
+
+#### bootstrap
+
+df_result_boot <- data.frame(NA,NA)
+colnames(df_result_boot) <- c("2.5%","97.5%")
+vec_result_boot <- c()
+n <- 100
+
+res <- msm_boot(df_msm_BRCA,"stage",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- mstate_boot("BRCA","stage",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- msm_boot(df_msm_BRCA,"var_nulle",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- mstate_boot("BRCA","var_nulle",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- msm_boot(df_msm_BRCA,"T01",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- mstate_boot("BRCA","T01",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- msm_boot(df_msm_BRCA,"T02",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- mstate_boot("BRCA","T02",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+df_result_boot <- df_result_boot[-1,]
+
+res_res <- cbind(df_result,"mean"=vec_result_boot,df_result_boot)
+res_res
+```
+
+# OV
+
+```{r OV,echo=FALSE,warning=FALSE,message=FALSE}
+#####################
+library(msm)
+library(mstate)
+
+df_result <- data.frame("HR"=NA,"L"=NA,"U"=NA)
+
+df_msm_OV <- df_msm[df_msm$type=="OV",]
+Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_OV,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~stage)
+df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII - IV`)
+df_result <- rbind(df_result,mstate_simple("stage"))
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_OV,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~var_nulle)
+df_result <- rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`var_nulle1`))
+df_result <- rbind(df_result,mstate_simple("var_nulle"))
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_OV,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~T01)
+df_result <- plyr::rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`T011`))
+df_result <- rbind(df_result,mstate_simple("T01"))
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_OV,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~T02)
+df_result <- rbind(df_result,summary(test_msm)$hazard$`T021`)
+df_result <- rbind(df_result,mstate_simple("T02"))
+
+df_result <- df_result[-1,]
+rownames(df_result) <- as.vector(sapply(c("msm - stage","mstate - stage","msm - aléatoire","mstate - aléatoire","msm - T01","mstate - T01","msm - T02","mstate - T02"),function(x) paste(x,c("1 -> 2","1 -> 3","2 -> 3"))))
+df_result <- df_result[c(1,4,2,5,3,6,7,10,8,11,9,12,13,16,14,17,15,18,19,22,20,23,21,24),]
+
+#### bootstrap
+
+df_result_boot <- data.frame(NA,NA)
+colnames(df_result_boot) <- c("2.5%","97.5%")
+vec_result_boot <- c()
+n <- 100
+
+res <- msm_boot(df_msm_OV,"stage",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- mstate_boot("OV","stage",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- msm_boot(df_msm_OV,"var_nulle",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- mstate_boot("OV","var_nulle",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- msm_boot(df_msm_OV,"T01",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- mstate_boot("OV","T01",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- msm_boot(df_msm_OV,"T02",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- mstate_boot("OV","T02",n)
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+df_result_boot <- df_result_boot[-1,]
+
+res_res <- cbind(df_result,"mean"=vec_result_boot,df_result_boot)
+res_res
+```
