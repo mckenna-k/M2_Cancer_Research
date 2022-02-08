@@ -1,0 +1,445 @@
+---
+title: "prez"
+author: "Silvestre Théo"
+date: "03/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,width=100)
+```
+
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE}
+load("simu.rda")
+data <- read.csv("TCGA-CDR_data.csv")
+data$DSS.time <- as.numeric(data$DSS.time) #en entrée, les valeurs peuvent être des caractères
+data$DSS <- as.numeric(data$DSS)
+data$PFI.time <- as.numeric(data$PFI.time)
+data$PFI <- as.numeric(data$PFI)
+data$DSS.time[data$PFI.time > data$DSS.time] <- NA #enlève les tumeurs apparues après la mort
+data$PFI.time[data$PFI.time > data$DSS.time] <- NA
+data$DSS.time[data$DSS.time==0] <- NA #enlève les suivis nuls
+data$PFI.time[data$PFI.time==0] <- NA 
+
+pfiNotDead.time <- data$PFI.time/365.25 #temps auquel la maladie se déclare 0 -> 1, le temps est mis en années
+pfiNotDead <- data$PFI
+pfiNotDead[data$PFI.time==data$DSS.time] <- 0 #censuré si le temps de PFI est égal à la mort
+dssDirect.time <- data$DSS.time/365.25 #temps pour la mort sans maladie préalable, 0 -> 2
+dssDirect <- data$DSS
+dssDirect[!data$PFI.time==data$DSS.time] <- 0
+dssRelapse.time <- (data$DSS.time-data$PFI.time)/365.25  #temps de de la mort à partir de la maladie, 1 -> 2
+dssRelapse.time[pfiNotDead==0] <- 0
+dssRelapse <- data$DSS
+dssRelapse[data$PFI.time==data$DSS.time] <- 0
+
+stage <- as.factor(data$ajcc_pathologic_tumor_stage) #stade de la tumeur
+levels(stage) <- c("NA","NA","NA","NA","I - II","I - II","other","I - II","I - II","I - II","I - II","I - II","I - II","I - II","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","other") #simplification des classes et nettoyage
+stageBis <- as.factor(data$clinical_stage) #stade clinique
+levels(stageBis) <- c("NA","NA","NA","I - II","I - II","I - II","III - IV","III - IV","III - IV",rep("I - II",14),rep("III - IV",6),"I - II",rep("III - IV",4)) #simplification des classes et nettoyage
+stage <- sapply(1:length(stage),function(i){
+  if(stage[i]=="NA") return(stageBis[i])
+  else return(stage[i])
+})  #la variable est composé de préférence du stade de la tumeur puis du stade clinique
+
+df_new <- data.frame("DSS"=data$DSS,"DSS.time"=data$DSS.time/365.25,   #construction de la data frame
+                     "PFI"=data$PFI,"PFI.time"=data$PFI.time/365.25,
+                     "T01"=pfiNotDead,"T01.time"=pfiNotDead.time,
+                     "T02"=dssDirect,"T02.time"=dssDirect.time,
+                     "T12"=dssRelapse,"T12.time"=dssRelapse.time,
+                     stage,"gender"=data$gender,"age"=data$age_at_initial_pathologic_diagnosis,"type"=data$type,"covar_nulle"=covar)
+df_new <- df_new[-which(apply(df_new,1,function(x) any(is.na(x)))),]  #nettoyage des NA sans stage
+df_new <- df_new[-which(is.element(df_new$stage,c("NA","other"))),] #nettoyage des NA du stage
+df_new$stage <- factor(df_new$stage,c("I - II","III - IV"))
+
+library(msm)
+
+df_msm <- data.frame("indiv"=NA,"time"=NA,"state"=NA,"type"="NA")
+for(i in 1:nrow(df_new)){
+  df_msm <- rbind(df_msm,c(i,0,1,df_new$type[i])) 
+  if((df_new$T01.time[i] < df_new$T02.time[i]) & df_new$T01[i]==1){
+    df_msm <- rbind(df_msm,c(i,df_new$T01.time[i],2,df_new$type[i])) 
+    if(df_new$T12.time[i] > 0 & df_new$T12[i]==1) df_msm <- rbind(df_msm,c(i,df_new$T12.time[i]+df_new$T01.time[i],3,df_new$type[i]))
+    else df_msm <- rbind(df_msm,c(i,df_new$T12.time[i]+df_new$T01.time[i],2,df_new$type[i]))
+  }
+  else if(df_new$T02[i] == 1) df_msm <- rbind(df_msm,c(i,df_new$T02.time[i],3,df_new$type[i]))
+  else df_msm <- rbind(df_msm,c(i,df_new$T02.time[i],1,df_new$type[i]))
+}
+df_msm <- df_msm[-1,]
+df_msm$time <- as.numeric(df_msm$time)
+df_msm$state <- as.numeric(df_msm$state)
+df_msm$indiv <- as.numeric(df_msm$indiv)
+df_msm$var_nulle <- as.character(covar[df_msm$indiv])
+df_msm$stage <- as.character(df_new$stage[df_msm$indiv])
+df_msm$test01 <- as.character(df_new$T01[df_msm$indiv])
+df_msm$test02 <- as.character(df_new$T02[df_msm$indiv])
+```
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE}
+#####################
+library(msm)
+library(mstate)
+
+df_result <- data.frame("HR"=NA,"L"=NA,"U"=NA)
+
+df_msm_brca <- df_msm[df_msm$type=="BRCA",]
+Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_brca,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~stage)
+df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII - IV`)
+
+df_new["covar"] <- df_new$stage
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+msebmt <- msprep(data = df_new[df_new$type=="BRCA",], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+covs <- c("covar")
+msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+a <- summary(c_stage)$conf.int[,-2]
+colnames(a) <- c("HR","L","U")
+df_result <- rbind(df_result,a)
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_brca,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~var_nulle)
+df_result <- rbind(df_result,summary(test_msm)$hazard$`var_nulle1`)
+
+df_new["covar"] <- df_new$covar_nulle
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+msebmt <- msprep(data = df_new[df_new$type=="BRCA",], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+covs <- c("covar")
+msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+a <- summary(c_stage)$conf.int[,-2]
+colnames(a) <- c("HR","L","U")
+df_result <- rbind(df_result,a)
+
+library(plyr)
+test_msm <- msm(state~time, subject=indiv,data = df_msm_brca,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~test01)
+df_result <- plyr::rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`test011`))
+
+df_new["covar"] <- df_new$T01
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+msebmt <- msprep(data = df_new[df_new$type=="BRCA",], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+covs <- c("covar")
+msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+a <- summary(c_stage)$conf.int[,-2]
+colnames(a) <- c("HR","L","U")
+df_result <- rbind(df_result,a)
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_brca,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~test02)
+df_result <- rbind(df_result,summary(test_msm)$hazard$`test021`)
+
+df_new["covar"] <- df_new$T02
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+msebmt <- msprep(data = df_new[df_new$type=="BRCA",], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+covs <- c("covar")
+msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+a <- summary(c_stage)$conf.int[,-2]
+colnames(a) <- c("HR","L","U")
+df_result <- rbind(df_result,a)
+
+df_result <- df_result[-1,]
+rownames(df_result) <- as.vector(sapply(c("msm - stage","mstate - stage","msm - aléatoire","mstate - aléatoire","msm - T01","mstate - T01","msm - T02","mstate - T02"),function(x) paste(x,c("1 -> 2","1 -> 3","2 -> 3"))))
+df_result <- df_result[c(1,4,2,5,3,6,7,10,8,11,9,12,13,16,14,17,15,18,19,22,20,23,21,24),]
+
+################
+
+df_result_boot <- data.frame(NA,NA)
+colnames(df_result_boot) <- c("2.5%","97.5%")
+vec_result_boot <- c()
+
+n <- 100
+m <- length(unique(df_msm_brca$indiv))
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+for(i in 1:n){
+  ind  <- sample(unique(df_msm_brca$indiv),size = m,replace = TRUE) 
+  cav.msm <- msm(state~time, subject=indiv,data = df_msm_brca[is.element(df_msm_brca$indiv,ind),],gen.inits = TRUE,qmatrix= Qmat, deathexact = 3, covariates = ~stage)
+  res[i,] <- as.vector(summary(cav.msm)$hazard$`stageIII - IV`[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975)))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+df_new["covar"] <- df_new$stage
+df_mstate_brca <- df_new[df_new$type=="BRCA",]
+covs <- c("covar")
+for(i in 1:n){
+  ind  <- sample(1:nrow(df_mstate_brca),size = m,replace = TRUE) 
+  msebmt <- msprep(data = df_mstate_brca[ind,], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+  msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+  msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+  c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+  res[i,] <- as.vector(summary(c_stage)$conf.int[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975)))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+for(i in 1:n){
+  ind  <- sample(unique(df_msm_brca$indiv),size = m,replace = TRUE)
+  cav.msm <- msm(state~time, subject=indiv,data = df_msm_brca[is.element(df_msm_brca$indiv,ind),],gen.inits = TRUE,qmatrix= Qmat, deathexact = 3, covariates = ~var_nulle)
+  res[i,] <- as.vector(summary(cav.msm)$hazard$`var_nulle1`[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975)))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+df_new["covar"] <- df_new$covar_nulle
+df_mstate_brca <- df_new[df_new$type=="BRCA",]
+covs <- c("covar")
+for(i in 1:n){
+  ind  <- sample(1:nrow(df_mstate_brca),size = m,replace = TRUE) 
+  msebmt <- msprep(data = df_mstate_brca[ind,], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+  msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+  msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+  c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+  res[i,] <- as.vector(summary(c_stage)$conf.int[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975)))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+for(i in 1:n){
+  ind  <- sample(unique(df_msm_brca$indiv),size = m,replace = TRUE)
+  cav.msm <- msm(state~time, subject=indiv,data = df_msm_brca[is.element(df_msm_brca$indiv,ind),],gen.inits = TRUE,qmatrix= Qmat, deathexact = 3, covariates = ~test01)
+  res[i,] <- as.vector(summary(cav.msm)$hazard$`test011`[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975)))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+df_new["covar"] <- df_new$T01
+df_mstate_brca <- df_new[df_new$type=="BRCA",]
+covs <- c("covar")
+for(i in 1:n){
+  ind  <- sample(1:nrow(df_mstate_brca),size = m,replace = TRUE) 
+  msebmt <- msprep(data = df_mstate_brca[ind,], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+  msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+  msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+  c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+  res[i,] <- as.vector(summary(c_stage)$conf.int[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+for(i in 1:n){
+  ind  <- sample(unique(df_msm_brca$indiv),size = m,replace = TRUE) 
+  cav.msm <- msm(state~time, subject=indiv,data = df_msm_brca[is.element(df_msm_brca$indiv,ind),],gen.inits = TRUE,qmatrix= Qmat, deathexact = 3, covariates = ~test02)
+  res[i,] <- as.vector(summary(cav.msm)$hazard$`test021`[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+df_new["covar"] <- df_new$T02
+df_mstate_brca <- df_new[df_new$type=="BRCA",]
+covs <- c("covar")
+for(i in 1:n){
+  ind  <- sample(1:nrow(df_mstate_brca),size = m,replace = TRUE) 
+  msebmt <- msprep(data = df_mstate_brca[ind,], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+  msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+  msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+  c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+  res[i,] <- as.vector(summary(c_stage)$conf.int[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+df_result_boot <- df_result_boot[-1,]
+
+res_res <- cbind(df_result,"mean"=vec_result_boot,df_result_boot)
+res_res
+```
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE}
+#####################
+library(msm)
+library(mstate)
+
+df_result <- data.frame("HR"=NA,"L"=NA,"U"=NA)
+
+df_msm_OV <- df_msm[df_msm$type=="OV",]
+Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_OV,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~stage)
+df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII - IV`)
+
+df_new["covar"] <- df_new$stage
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+msebmt <- msprep(data = df_new[df_new$type=="OV",], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+covs <- c("covar")
+msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+a <- summary(c_stage)$conf.int[,-2]
+colnames(a) <- c("HR","L","U")
+df_result <- rbind(df_result,a)
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_OV,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~var_nulle)
+df_result <- rbind(df_result,summary(test_msm)$hazard$`var_nulle1`)
+
+df_new["covar"] <- df_new$covar_nulle
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+msebmt <- msprep(data = df_new[df_new$type=="OV",], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+covs <- c("covar")
+msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+a <- summary(c_stage)$conf.int[,-2]
+colnames(a) <- c("HR","L","U")
+df_result <- rbind(df_result,a)
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_OV,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~test01)
+df_result <- plyr::rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`test011`))
+
+df_new["covar"] <- df_new$T01
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+msebmt <- msprep(data = df_new[df_new$type=="OV",], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+covs <- c("covar")
+msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+a <- summary(c_stage)$conf.int[,-2]
+colnames(a) <- c("HR","L","U")
+df_result <- rbind(df_result,a)
+
+test_msm <- msm(state~time, subject=indiv,data = df_msm_OV,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~test02)
+df_result <- rbind(df_result,summary(test_msm)$hazard$`test021`)
+
+df_new["covar"] <- df_new$T02
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+msebmt <- msprep(data = df_new[df_new$type=="OV",], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+covs <- c("covar")
+msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+a <- summary(c_stage)$conf.int[,-2]
+colnames(a) <- c("HR","L","U")
+df_result <- rbind(df_result,a)
+
+df_result <- df_result[-1,]
+rownames(df_result) <- as.vector(sapply(c("msm - stage","mstate - stage","msm - aléatoire","mstate - aléatoire","msm - T01","mstate - T01","msm - T02","mstate - T02"),function(x) paste(x,c("1 -> 2","1 -> 3","2 -> 3"))))
+df_result <- df_result[c(1,4,2,5,3,6,7,10,8,11,9,12,13,16,14,17,15,18,19,22,20,23,21,24),]
+
+################
+
+df_result_boot <- data.frame(NA,NA)
+colnames(df_result_boot) <- c("2.5%","97.5%")
+vec_result_boot <- c()
+
+n <- 100
+m <- length(unique(df_msm_OV$indiv))
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+for(i in 1:n){
+  ind  <- sample(unique(df_msm_OV$indiv),size = m,replace = TRUE) 
+  cav.msm <- msm(state~time, subject=indiv,data = df_msm_OV[is.element(df_msm_OV$indiv,ind),],gen.inits = TRUE,qmatrix= Qmat, deathexact = 3, covariates = ~stage)
+  res[i,] <- as.vector(summary(cav.msm)$hazard$`stageIII - IV`[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975)))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+df_new["covar"] <- df_new$stage
+df_mstate_OV <- df_new[df_new$type=="OV",]
+covs <- c("covar")
+for(i in 1:n){
+  ind  <- sample(1:nrow(df_mstate_OV),size = m,replace = TRUE) 
+  msebmt <- msprep(data = df_mstate_OV[ind,], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+  msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+  msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+  c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+  res[i,] <- as.vector(summary(c_stage)$conf.int[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975)))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+for(i in 1:n){
+  ind  <- sample(unique(df_msm_OV$indiv),size = m,replace = TRUE)
+  cav.msm <- msm(state~time, subject=indiv,data = df_msm_OV[is.element(df_msm_OV$indiv,ind),],gen.inits = TRUE,qmatrix= Qmat, deathexact = 3, covariates = ~var_nulle)
+  res[i,] <- as.vector(summary(cav.msm)$hazard$`var_nulle1`[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975)))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+df_new["covar"] <- df_new$covar_nulle
+df_mstate_OV <- df_new[df_new$type=="OV",]
+covs <- c("covar")
+for(i in 1:n){
+  ind  <- sample(1:nrow(df_mstate_OV),size = m,replace = TRUE) 
+  msebmt <- msprep(data = df_mstate_OV[ind,], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+  msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+  msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+  c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+  res[i,] <- as.vector(summary(c_stage)$conf.int[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975)))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+for(i in 1:n){
+  ind  <- sample(unique(df_msm_OV$indiv),size = m,replace = TRUE)
+  cav.msm <- msm(state~time, subject=indiv,data = df_msm_OV[is.element(df_msm_OV$indiv,ind),],gen.inits = TRUE,qmatrix= Qmat, deathexact = 3, covariates = ~test01)
+  res[i,] <- as.vector(summary(cav.msm)$hazard$`test011`[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975)))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+df_new["covar"] <- df_new$T01
+df_mstate_OV <- df_new[df_new$type=="OV",]
+covs <- c("covar")
+for(i in 1:n){
+  ind  <- sample(1:nrow(df_mstate_OV),size = m,replace = TRUE) 
+  msebmt <- msprep(data = df_mstate_OV[ind,], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+  msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+  msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+  c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+  res[i,] <- as.vector(summary(c_stage)$conf.int[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+for(i in 1:n){
+  ind  <- sample(unique(df_msm_OV$indiv),size = m,replace = TRUE) 
+  cav.msm <- msm(state~time, subject=indiv,data = df_msm_OV[is.element(df_msm_OV$indiv,ind),],gen.inits = TRUE,qmatrix= Qmat, deathexact = 3, covariates = ~test02)
+  res[i,] <- as.vector(summary(cav.msm)$hazard$`test021`[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+res <- matrix(rep(NA,n*3),ncol=3,nrow=n)
+tmat <- transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+df_new["covar"] <- df_new$T02
+df_mstate_OV <- df_new[df_new$type=="OV",]
+covs <- c("covar")
+for(i in 1:n){
+  ind  <- sample(1:nrow(df_mstate_OV),size = m,replace = TRUE) 
+  msebmt <- msprep(data = df_mstate_OV[ind,], trans = tmat, time = c(NA, "T01.time","T02.time"), status = c(NA, "T01", "DSS"), keep = c("covar"))
+  msebmt <- expand.covs(msebmt, covs, longnames = FALSE)
+  msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+  c_stage <- coxph(Surv(Tstart, Tstop, status) ~ strata(trans)+covar.1+covar.2+covar.3, data = msebmt,method = "breslow")
+  res[i,] <- as.vector(summary(c_stage)$conf.int[,1])
+}
+df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
+vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
+
+df_result_boot <- df_result_boot[-1,]
+
+res_res <- cbind(df_result,"mean"=vec_result_boot,df_result_boot)
+res_res
+```
