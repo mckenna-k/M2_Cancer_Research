@@ -12,44 +12,57 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=TRUE, results="verbatim")
-```
-
-```{r}
 library(tidyverse)
 library(msm)
 library(survival)
+```
+
+```{r}
 #Import les données
-data <- read.csv("data/TCGA-CDR_data.csv")
-# Creation de donnee simule
-covar_sim <- sample(c(0,1),1000,replace=TRUE)
-covar <-  sample(c(0,1),11160,replace=TRUE)
+data = openxlsx::read.xlsx("TCGA-CDR-SupplementalTableS1.xlsx", sheet = "TCGA-CDR", na.strings="#N/A")
 
-#convert qq colonnes en numerique depuis les facteurs.
-data$DSS.time <- as.numeric(as.character(data$DSS.time))
-data$DSS <- as.numeric(as.character(data$DSS))
-data$PFI.time <- as.numeric(as.character(data$PFI.time))
-data$PFI <- as.numeric(as.character(data$PFI))
+# verification des colonnes numerique depuis les facteurs.
+if (!is.numeric(data$DSS.time)) {stop("DSS.time is not numeric.")}
+if (!is.numeric(data$DSS     )) {stop("DSS      is not numeric.")}
+if (!is.numeric(data$PFI.time)) {stop("PFI.time is not numeric.")}
+if (!is.numeric(data$PFI     )) {stop("PFI      is not numeric.")}
 
-# Chqnge les valeurs de DSS.time et PFI.time au NA, (Car pas de sens un temps 0)
-# ou si PFI.time est plus grand que DSS.time car aussi pas de sens.  
+# Change les valeurs de DSS.time et PFI.time au NA, (Car pas de sens un temps 0)
 data$DSS.time[data$DSS.time==0] <- NA #enlever les suivis nuls
 data$PFI.time[data$PFI.time==0] <- NA #enlever les suivis nuls
-data$DSS.time[data$PFI.time > data$DSS.time] <- NA
-data$PFI.time[data$PFI.time > data$DSS.time] <- NA
-
+# ou si PFI.time est plus grand que DSS.time car aussi pas de sens.  
+sum(data$PFI.time > data$DSS.time, na.rm=TRUE)
+data[!is.na(data$PFI.time > data$DSS.time) & data$PFI.time > data$DSS.time,c("DSS.time", "PFI.time")]
+data[!is.na(data$PFI.time > data$DSS.time) & data$PFI.time > data$DSS.time,c("DSS.time", "PFI.time")] = NA
+data[!is.na(data$PFI.time > data$DSS.time) & data$PFI.time > data$DSS.time,c("DSS.time", "PFI.time")]
+dim(data)
 
 # Creation de colonnes pour la création de dataframe de matrice de transition
 pfiNotDead.time <- data$PFI.time/365.25
 pfiNotDead <- data$PFI
 pfiNotDead[data$PFI.time==data$DSS.time] <- 0
+
 dssDirect.time <- data$DSS.time/365.25
 dssDirect <- data$DSS
 dssDirect[!data$PFI.time==data$DSS.time] <- 0
+
 dssRelapse.time <- (data$DSS.time-data$PFI.time)/365.25
 dssRelapse.time[pfiNotDead==0] <- 0
 dssRelapse <- data$DSS
 dssRelapse[data$PFI.time==data$DSS.time] <- 0
 
+
+
+
+
+
+
+
+
+# Co variates
+
+# Creation de donnee simule
+covar <-  sample(c(0,1),11160,replace=TRUE)
 
 # Recode les levels du stage du tumeur pour avoir moins de niveau.  
 # Fait qu'il y a seulement stage 1/2, 3/4 et NA; ou 1/2, 3/4, autre et NA  
@@ -62,31 +75,48 @@ stage <- sapply(1:length(stage),function(i){
   else return(stage[i])
 })
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Creation d'un nouveau dataframe plus petit et facile a manipuler.  
-df_new <- data.frame("Patient"=data$X,
-                     "DSS"=data$DSS,"DSS.time"=data$DSS.time/365.25,
-                     "PFI"=data$PFI,"PFI.time"=data$PFI.time/365.25,
-                     "T01"=pfiNotDead,"T01.time"=pfiNotDead.time,
-                     "T02"=dssDirect,"T02.time"=dssDirect.time,
-                     "T12"=dssRelapse,"T12.time"=dssRelapse.time,
-                     stage,"var_nulle"=as.character(covar),"gender"=data$gender,"age"=data$age_at_initial_pathologic_diagnosis,"type"=data$type)
+df_new <- data.frame(
+  Patient=data$X,
+  DSS=data$DSS   , DSS.time=data$DSS.time/365.25 ,
+  PFI=data$PFI   , PFI.time=data$PFI.time/365.25 ,
+  T01=pfiNotDead , T01.time=pfiNotDead.time      ,
+  T02=dssDirect  , T02.time=dssDirect.time       ,
+  T12=dssRelapse , T12.time=dssRelapse.time      ,
+  stage=stage                                    ,
+  var_nulle=as.character(covar)                  ,
+  gender=data$gender                             ,
+  age=data$age_at_initial_pathologic_diagnosis   ,
+  type=data$type
+)
 
 # Enleve les NA
-df_new <- df_new[-which(apply(df_new,1,function(x) any(is.na(x)))),]
+df_new = df_new[!apply(is.na(df_new), 1, any),]
 dim(df_new)
 # Enleve les stage qui ont le niveau NA ou other
 df_new <- df_new[-which(is.element(df_new$stage,c("NA","other"))),]
 df_new$stage <- factor(df_new$stage,c("I - II","III - IV"))
 dim(df_new)
 df_new$age <- as.numeric(as.character(df_new$age))
-df_new <- df_new[-which(is.na(df_new$age)),] #nettoyage des NA de l'age
+df_new = df_new[!is.na(df_new$age),] #nettoyage des NA de l'age
 # Dois les converti depuis factors pour qu'ils soit bien selectionner dans le boucle for
 df_new <- df_new %>% mutate_at(c('type','stage','age','var_nulle','gender'), as.character)
 ```
 
 ```{r}
-
-
 #* Section plus compliquer a comprendre
 #* Chaque personne peut atteindre max de 3 phase,  soit 1-1 (censure pour PFI et DSS), 1-2-2 (censure pour DSS), 
 #* 1-3 (pas de censure, PFI.time == DSS.time), ou 1-2-3 (pas de censure, PFI.time != DSS.time) selon leur prognosis et leur censure. 
