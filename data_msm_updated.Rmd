@@ -4,10 +4,10 @@ author: "Shuyu, Marame, Kevin, Théo, Florence"
 date: "`r Sys.Date()`"
 output: 
   rmarkdown::html_document:
-  toc: true
-  toc_float: true
-  toc_depth: 3
-  number_sections: true
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
 ---
   
 ```{r setup, include=FALSE}
@@ -419,7 +419,7 @@ df_result <- data.frame("HR"=NA,"L"=NA,"U"=NA)
 df_msm_BRCA <- df_msm[df_msm$type=="BRCA",]
 Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
 
-test_msm <- msm(state~time, subject=indiv,data = df_msm_BRCA,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~stage)
+test_msm <- msm(state~time, subject=indiv,data = df_msm_BRCA,gen.inits=TRUE, qmatrix=Qmat, deathexact = 3, covariates = ~stage)
 df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII - IV`)
 df_result <- rbind(df_result,mstate_simple("BRCA","stage"))
 
@@ -439,12 +439,32 @@ df_result <- df_result[-1,]
 rownames(df_result) <- as.vector(sapply(c("msm - stage","mstate - stage","msm - aléatoire","mstate - aléatoire","msm - T01","mstate - T01","msm - T02","mstate - T02"),function(x) paste(x,c("1 -> 2","1 -> 3","2 -> 3"))))
 df_result <- df_result[c(1,4,2,5,3,6,7,10,8,11,9,12,13,16,14,17,15,18,19,22,20,23,21,24),]
 
+signif(df_result,3)
+
+na.rm(df_result[,2])
+
+df_result[,2][is.finite(df_result[,2])]
+
+par(mar=c(5.1, 10, 4.1, 2.1))
+plot(0,0,col=0, ylim=c(1, nrow(df_result)), xlim=c(0,10), yaxt="n", ylab="0", xlab="HR", main="BRCA")
+# min(df_result[,2][is.finite(df_result[,2])]), max(df_result[,3][is.finite(df_result[,3])])))
+abline(v=1, lty=2, col="grey")
+for (i in rev(1:nrow(df_result))) {
+  col = ifelse(any(!is.finite(unlist(df_result[i,]))), 2, 1)
+  points(df_result[i,1], i, pch=16, col=col)
+  arrows(df_result[i,2],i,df_result[i,3],i, col=col, length=0)
+}
+axis(2, rev(1:nrow(df_result)), rownames(df_result), las=2)
+par(mar=c(5.1, 4.1, 4.1, 2.1))
+```
+```{r eval=FALSE}
+
 #### bootstrap
 
 df_result_boot <- data.frame(NA,NA)
 colnames(df_result_boot) <- c("2.5%","97.5%")
 vec_result_boot <- c()
-n <- 100
+n <- 3
 
 res <- msm_boot(df_msm_BRCA,"stage",n)
 df_result_boot <- rbind(df_result_boot,t(apply(res,2,function(x) quantile(x,probs=c(0.025,0.975),na.rm=TRUE))))
@@ -481,12 +501,16 @@ vec_result_boot <- c(vec_result_boot,apply(res,2,mean))
 df_result_boot <- df_result_boot[-1,]
 
 res_res <- cbind(df_result,"mean"=vec_result_boot,df_result_boot)
-res_res
+signif(res_res,3)
 ```
+
+
+
+
 
 # OV
 
-```{r OV,echo=FALSE,warning=FALSE,message=FALSE}
+```{r OV,echo=FALSE,warning=FALSE,message=FALSE, eval=FALSE}
 #####################
 library(msm)
 library(mstate)
