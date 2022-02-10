@@ -441,10 +441,6 @@ df_result <- df_result[c(1,4,2,5,3,6,7,10,8,11,9,12,13,16,14,17,15,18,19,22,20,2
 
 signif(df_result,3)
 
-na.rm(df_result[,2])
-
-df_result[,2][is.finite(df_result[,2])]
-
 par(mar=c(5.1, 10, 4.1, 2.1))
 plot(0,0,col=0, ylim=c(1, nrow(df_result)), xlim=c(0,10), yaxt="n", ylab="0", xlab="HR", main="BRCA")
 # min(df_result[,2][is.finite(df_result[,2])]), max(df_result[,3][is.finite(df_result[,3])])))
@@ -457,6 +453,7 @@ for (i in rev(1:nrow(df_result))) {
 axis(2, rev(1:nrow(df_result)), rownames(df_result), las=2)
 par(mar=c(5.1, 4.1, 4.1, 2.1))
 ```
+
 ```{r eval=FALSE}
 
 #### bootstrap
