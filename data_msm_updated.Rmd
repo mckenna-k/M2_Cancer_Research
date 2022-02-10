@@ -450,7 +450,7 @@ for (i in rev(1:nrow(df_result))) {
   points(df_result[i,1], i, pch=16, col=col)
   arrows(df_result[i,2],i,df_result[i,3],i, col=col, length=0)
 }
-axis(2, rev(1:nrow(df_result)), rownames(df_result), las=2)
+axis(2, 1:nrow(df_result), rownames(df_result), las=2)
 par(mar=c(5.1, 4.1, 4.1, 2.1))
 ```
 
