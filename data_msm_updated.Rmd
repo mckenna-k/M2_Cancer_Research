@@ -475,7 +475,41 @@ for(kc in
 
 
 
+# PCA 
 
+```{r}
+data = sapply(unique(df_msm$type), function(kc) {
+  Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
+  Q2 <- crudeinits.msm(state~time, subject=indiv,data = df_msm[df_msm$type == kc,],qmatrix= Qmat)
+  i01 = Q2[1,2]
+  i02 = Q2[1,3]
+  i12 = Q2[2,3]
+  return(c(i01=i01, i02=i02, i12=i12))  
+})
+data = t(data)
+
+
+pca = prcomp(data, scale=TRUE)
+v = pca$sdev * pca$sdev
+p = v / sum(v) * 100
+layout(matrix(1:6,2, byrow=FALSE), respect=TRUE)
+barplot(p)
+# colors = rev(RColorBrewer::brewer.pal(n=11, "Paired"))
+colors = c("red", "blue")
+cols = 1 #adjustcolor(colors[as.numeric(data_train[rownames(pca$x),]$histology)], alpha.f=0.5)
+i=3
+j=2
+plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=16)
+i=1
+j=3
+plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=16)
+i=1
+j=2
+plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=16)
+# i=4
+# j=5
+# plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=".")
+```
 
 
 
