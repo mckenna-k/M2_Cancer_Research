@@ -85,6 +85,43 @@ df_new = df_new[!is.na(df_new$age),] #nettoyage des NA de l'age
 df_new <- df_new %>% mutate_at(c('type','stage','age','var_nulle','gender'), as.character)
 ```
 
+```{r,echo=FALSE}
+#### Ajout de deux jeux simulés
+process <- function(n,l01,l02,l12,censor1=NULL,censor2=NULL,seed=1){
+  set.seed(seed)
+  if(is.null(censor1) | is.null(censor2)){
+    t1 <- rexp(n,l01+l02) #temps de passage de 0 à 1 ou 0 à 2
+    s1 <- rbinom(n,1,l02/(l01+l02))+1 #détermination de l'état atteint (1 ou 2)
+    t2 <- rexp(n,l12) #temps de passage de l'état 1 à 2 à partir du temps d'arrivée à 1
+    df <- data.frame("DSS"=rep(1,n),"DSS.time"=ifelse(s1==1,t1+t2,t1),
+                     "PFI"=rep(1,n),"PFI.time"=t1,
+                     "T01"=-(s1-2),"T01.time"=t1,
+                     "T02"=s1-1,"T02.time"=ifelse(s1==2,t1,t1+t2),
+                     "T12"=-(s1-2),"T12.time"=ifelse(s1==1,t2,0))
+  }
+  else{
+    t1 <- rexp(n,l01+l02+censor1) #temps de passage de 0 à 1 ou 0 à 2
+    s1 <- apply(rmultinom(n, size = 1, prob = c(censor1/(l01+l02+censor1),l01/(l01+l02+censor1),l02/(l01+l02+censor1)))==1,2,which)-1 #détermination de l'état atteint (1 ou 2)
+    t2 <- rexp(n,l12+censor2)
+    s2 <- rbinom(n,1,l12/(l12+censor2))
+    df <- data.frame("DSS"=ifelse(s1 > 0,1,0),"DSS.time"=ifelse(s1==1,t1+t2,t1),
+                     "PFI"=ifelse(s1 > 0,1,0),"PFI.time"=t1,
+                     "T01"=ifelse(s1==1,1,0),"T01.time"=t1,
+                     "T02"=ifelse(s1-1 > 0,1,0),"T02.time"=ifelse(s1==2 | s1==0,t1,t1+t2),
+                     "T12"=ifelse(s1==1 & s2==1,1,0),"T12.time"=ifelse(s1==1,t2,0))
+  }
+  return(df)
+}
+
+stage_1 <- sample(c("I - II","III - IV"),1000,replace = TRUE,prob=c(0.3,0.9))
+df_simu1 <- cbind("Patient"=as.character(20001:21000),process(n=1000,0.3,0.3,0.3,0.3,0.3,97),"stage"=stage_1,"var_nulle"=sample(0:1,1000,replace = TRUE),"gender"=rep(NA,1000),"age"=rep(NA,1000),"type"=rep("SIMU1",1000))
+
+stage_2 <- sample(c("I - II","III - IV"),1000,replace = TRUE,prob=c(0.2,0.8))
+df_simu2 <- cbind("Patient"=as.character(21001:22000),process(n=100,0.3,0.6,0.6,0.2,0.2,97),"stage"=stage_2,"var_nulle"=sample(0:1,1000,replace = TRUE),"gender"=rep(NA,1000),"age"=rep(NA,1000),"type"=rep("SIMU2",1000))
+
+df_new <- rbind(df_new,df_simu1,df_simu2)
+```
+
 ```{r}
 #* Section plus compliquer a comprendre
 #* Chaque personne peut atteindre max de 3 phase,  soit 1-1 (censure pour PFI et DSS), 1-2-2 (censure pour DSS), 
@@ -417,9 +454,9 @@ library(mstate)
 layout(matrix(1:2,1), respect=TRUE)
 
 for(kc in 
-      c("BRCA", "OV", "PAAD", "LUAD", "LUSC", "COAD"#, "SIMU1", "SIMU2"
+      c("BRCA", "OV", "PAAD", "LUAD", "LUSC", "COAD", "SIMU1", "SIMU2"
        )
-    ) {   
+    ) {
   df_result <- data.frame("HR"=NA,"L"=NA,"U"=NA)
 
   df_msm_kc <- df_msm[df_msm$type==kc,]
