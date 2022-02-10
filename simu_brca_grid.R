@@ -10,7 +10,7 @@ process <- function(n,l01,l02,l12,censor1=NULL,censor2=NULL,seed=1){
                      "PFI"=rep(1,n),"PFI.time"=t1,
                      "T01"=-(s1-2),"T01.time"=t1,
                      "T02"=s1-1,"T02.time"=ifelse(s1==2,t1,t1+t2),
-                     "T12"=-(s1-2),"T12.time"=ifelse(s1==1,t1+t2,t1))
+                     "T12"=-(s1-2),"T12.time"=ifelse(s1==1,t2,0))
   }
   else{
     t1 <- rexp(n,l01+l02+censor1) #temps de passage de 0 à 1 ou 0 à 2
@@ -21,18 +21,20 @@ process <- function(n,l01,l02,l12,censor1=NULL,censor2=NULL,seed=1){
                      "PFI"=ifelse(s1 > 0,1,0),"PFI.time"=t1,
                      "T01"=ifelse(s1==1,1,0),"T01.time"=t1,
                      "T02"=ifelse(s1-1 > 0,1,0),"T02.time"=ifelse(s1==2 | s1==0,t1,t1+t2),
-                     "T12"=ifelse(s1==1 & s2==1,1,0),"T12.time"=ifelse(s1==1,t1+t2,t1))
+                     "T12"=ifelse(s1==1 & s2==1,1,0),"T12.time"=ifelse(s1==1,t2,0))
   }
   return(df)
 }
 
-covar_creation <- function(df_new,p1,p2,p3num,p3denom,seed=1){
+covar_creation <- function(df_new,p1,p2,p3num,p3denom,total,seed=1){
   set.seed(seed)
   covar <- rep(0,nrow(df_new))
   covar[df_new$T01==1] <- sample(0:1,sum(df_new$T01==1),replace = TRUE,prob = c(1-p1,p1))
   covar[df_new$T02==1] <- sample(0:1,sum(df_new$T02==1),replace = TRUE,prob = c(1-p2,p2))
   deja_pris <- sum(df_new$T01==1 & covar==1)
-  if(deja_pris < sum(df_new$T12==1) & deja_pris < 25) covar[df_new$T12==1 & df_new$T01==0] <- sample(0:1,size=sum(df_new$T12==1)-deja_pris,replace = TRUE,prob = c(1-(p3num-deja_pris)/(p3denom-deja_pris),(p3num-deja_pris)/(p3denom-deja_pris)))
+  if(deja_pris < 25) covar[df_new$T12==1 & df_new$T01==0] <- sample(0:1,size=sum(df_new$T12==1)-deja_pris,replace = TRUE,prob = c(1-(p3num-deja_pris)/(p3denom-deja_pris),(p3num-deja_pris)/(p3denom-deja_pris)))
+  non_pris <- sum(df_new$T01==0 & df_new$T02==0 & df_new$T12==0)
+  if(total-sum(covar) > 0) covar[df_new$T01==0 & df_new$T02==0 & df_new$T12==0] <- sample(0:1,non_pris,replace = TRUE,prob=c(1-(total-sum(covar))/non_pris,(total-sum(covar))/non_pris))
   return(covar)
 }
 
@@ -97,7 +99,7 @@ for(seed in 1:3){
         print(paste("******", i01,i02,i12, seed))
         df_new <- process(n=n,i01,i02,i12,0.001,0.35,seed)
         df_msm <- df_msm_creation(df_new)
-        covar <- covar_creation(df_new,42/98,16/33,25,46,seed)
+        covar <- covar_creation(df_new,42/98,16/33,25,46,257,seed)
         df_msm[["covar"]] <- covar[df_msm$indiv]
         msm_simu <- msm(state~time, subject=indiv,data=df_msm, gen.inits=TRUE, qmatrix= Qmat, deathexact = 3, covariates = ~covar)
         hazards <- hazard.msm(msm_simu)[[1]]
