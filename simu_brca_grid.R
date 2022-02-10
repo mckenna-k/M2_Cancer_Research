@@ -10,7 +10,7 @@ process <- function(n,l01,l02,l12,censor1=NULL,censor2=NULL,seed=1){
                      "PFI"=rep(1,n),"PFI.time"=t1,
                      "T01"=-(s1-2),"T01.time"=t1,
                      "T02"=s1-1,"T02.time"=ifelse(s1==2,t1,t1+t2),
-                     "T12"=-(s1-2),"T12.time"=ifelse(s1==1,t2,0))
+                     "T12"=-(s1-2),"T12.time"=ifelse(s1==1,t1+t2,t1))
   }
   else{
     t1 <- rexp(n,l01+l02+censor1) #temps de passage de 0 à 1 ou 0 à 2
@@ -21,7 +21,7 @@ process <- function(n,l01,l02,l12,censor1=NULL,censor2=NULL,seed=1){
                      "PFI"=ifelse(s1 > 0,1,0),"PFI.time"=t1,
                      "T01"=ifelse(s1==1,1,0),"T01.time"=t1,
                      "T02"=ifelse(s1-1 > 0,1,0),"T02.time"=ifelse(s1==2 | s1==0,t1,t1+t2),
-                     "T12"=ifelse(s1==1 & s2==1,1,0),"T12.time"=ifelse(s1==1,t2,0))
+                     "T12"=ifelse(s1==1 & s2==1,1,0),"T12.time"=ifelse(s1==1,t1+t2,t1))
   }
   return(df)
 }
@@ -67,6 +67,14 @@ val01 <- seq(0.1,0.9,0.2)
 val02 <- seq(0.1,0.9,0.2)
 val12 <- seq(0.1,0.9,0.2)
 
+
+# val01 = .6; val02 = .2; val12 = .3; # BRCA
+# val01 = .03; val02 = .01; val12 = .2; # BRCA crud init
+
+val01 = .7; val02 = .1; val12 = .5; # OV
+
+
+
 res01 <-rep(NA,length(val01))
 res02 <-rep(NA,length(val02))
 res12 <-rep(NA,length(val12))
@@ -86,10 +94,6 @@ for(seed in 1:3){
         i01 = val01[[i]]
         i02 = val02[[j]]
         i12 = val12[[k]]
-        
-        # i01 = .6; i02 = .2; i12 = .3; # BRCA
-        # i01 = .7; i02 = .1; i12 = .5; # OV
-
         print(paste("******", i01,i02,i12, seed))
         df_new <- process(n=n,i01,i02,i12,0.001,0.35,seed)
         df_msm <- df_msm_creation(df_new)
@@ -101,13 +105,13 @@ for(seed in 1:3){
           deltahr01 = 10000
           deltahr02 = 10000
           deltahr03 = 10000
-        }
-        else{
+        } else{
           deltahr01 =  hazards[1,3]-hazards[1,2]
           deltahr02 =  hazards[2,3]-hazards[2,2]
           deltahr03 =  hazards[3,3]-hazards[3,2]
         }
         ret = c(i01=i01, i02=i02, i12=i12, seed=seed, deltahr01=deltahr01, deltahr02=deltahr02, deltahr03=deltahr03)
+        ret
         if (is.null(res)) {
           res= ret
         } else {
@@ -117,6 +121,10 @@ for(seed in 1:3){
     }
   }
 }
+
+print(res)
+
+stop()
 
 
 d = data.frame(res)
