@@ -78,30 +78,103 @@ res12 <-rep(NA,length(val12))
 #grille tous les seq(0.1,0.9,0.2)  125 points 
 #réplicats 3 fois
 #fonction covar seed
-for(seed in 1:1){
+res = NULL
+for(seed in 1:3){
   for(i in 1:length(val01)){
     for(j in 1:length(val02)){
       for(k in 1:length(val12)){
-        df_new <- process(n=n,val01[[i]],val02[[j]],val12[[k]],0.001,0.35,seed)
+        i01 = val01[[i]]
+        i02 = val02[[j]]
+        i12 = val12[[k]]
+        
+        # i01 = .6; i02 = .2; i12 = .3; # BRCA
+        # i01 = .7; i02 = .1; i12 = .5; # OV
+
+        print(paste("******", i01,i02,i12, seed))
+        df_new <- process(n=n,i01,i02,i12,0.001,0.35,seed)
         df_msm <- df_msm_creation(df_new)
         covar <- covar_creation(df_new,42/98,16/33,25,46,seed)
         df_msm[["covar"]] <- covar[df_msm$indiv]
-        msm_simu <- msm(state~time, subject=indiv,data = df_msm, gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~covar)
+        msm_simu <- msm(state~time, subject=indiv,data=df_msm, gen.inits=TRUE, qmatrix= Qmat, deathexact = 3, covariates = ~covar)
         hazards <- hazard.msm(msm_simu)[[1]]
         if(dim(hazards)[2] == 1){
-          res01[k+j*length(val02)+i*length(val02)*length(val01)] <- 10000
-          res02[k+j*length(val02)+i*length(val02)*length(val01)] <- 10000
-          res12[k+j*length(val02)+i*length(val02)*length(val01)] <- 10000
+          deltahr01 = 10000
+          deltahr02 = 10000
+          deltahr03 = 10000
         }
         else{
-          res01[k+j*length(val02)+i*length(val02)*length(val01)] <- hazards[1,3]-hazards[1,2]
-          res02[k+j*length(val02)+i*length(val02)*length(val01)] <- hazards[2,3]-hazards[2,2]
-          res12[k+j*length(val02)+i*length(val02)*length(val01)] <- hazards[3,3]-hazards[3,2]
+          deltahr01 =  hazards[1,3]-hazards[1,2]
+          deltahr02 =  hazards[2,3]-hazards[2,2]
+          deltahr03 =  hazards[3,3]-hazards[3,2]
+        }
+        ret = c(i01=i01, i02=i02, i12=i12, seed=seed, deltahr01=deltahr01, deltahr02=deltahr02, deltahr03=deltahr03)
+        if (is.null(res)) {
+          res= ret
+        } else {
+          res = rbind(res, ret)
         }
       }  
     }
   }
 }
+
+
+d = data.frame(res)
+head(d)
+
+d[d$deltahr01 > 10000,]$deltahr01 = 10000
+hist(d$deltahr01)
+plot(density(unlist(d$deltahr01)))
+ 
+m = lm(deltahr01~val01*val02*val12 , d)
+anova(m)
+
+head(d)
+
+d$val01 = as.factor(d$val01)
+d$val02 = as.factor(d$val02)
+d$val12 = as.factor(d$val12)
+
+m = lm(deltahr01~val01*val02*val12 , d)
+anova(m)
+
+par(mar=c(10, 4.1, 4.1, 2.1))
+boxplot(deltahr01~val01*val02*val12, d, las=2, xlab="")
+par(mar=c(5.1, 4.1, 4.1, 2.1))
+
+
+d[d$deltahr01 > 100,]$deltahr01 = 100
+d[d$deltahr02 > 100,]$deltahr02 = 100
+d[d$deltahr03 > 100,]$deltahr03 = 100
+
+m = lm(deltahr01~val01*val02*val12 , d)
+anova(m)
+
+# BRCA 0.6, 0.2, 0.3
+# OV 0.7, 0.1, 0.5
+par(mar=c(10, 4.1, 4.1, 2.1))
+layout(matrix(1:3,1), respect=TRUE)
+boxplot(deltahr01~val01*val02*val12, d, las=2, xlab="")
+boxplot(deltahr02~val01*val02*val12, d, las=2, xlab="")
+boxplot(deltahr03~val01*val02*val12, d, las=2, xlab="")
+par(mar=c(5.1, 4.1, 4.1, 2.1))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 mat_res01 <- matrix(res01,byrow = TRUE,ncol=3)[order(x),]
 mat_res02 <- matrix(res02,byrow = TRUE,ncol=3)[order(x),]
