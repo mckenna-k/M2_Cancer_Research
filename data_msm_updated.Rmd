@@ -407,53 +407,60 @@ mstate_boot <- function(name,name_covar,n){
 }
 ```
 
-# BRCA
 
 ```{r brca,echo=FALSE,warning=FALSE,message=FALSE}
 #####################
 library(msm)
 library(mstate)
 
-df_result <- data.frame("HR"=NA,"L"=NA,"U"=NA)
 
-df_msm_BRCA <- df_msm[df_msm$type=="BRCA",]
-Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
+layout(matrix(1:2,1), respect=TRUE)
 
-test_msm <- msm(state~time, subject=indiv,data = df_msm_BRCA,gen.inits=TRUE, qmatrix=Qmat, deathexact = 3, covariates = ~stage)
-df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII - IV`)
-df_result <- rbind(df_result,mstate_simple("BRCA","stage"))
+for(kc in c("BRCA", "OV", "PAAD", "LUAD", "LUSC", "COAD")) {
+  df_result <- data.frame("HR"=NA,"L"=NA,"U"=NA)
 
-test_msm <- msm(state~time, subject=indiv,data = df_msm_BRCA,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~var_nulle)
-df_result <- rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`var_nulle1`))
-df_result <- rbind(df_result,mstate_simple("BRCA","var_nulle"))
+  df_msm_kc <- df_msm[df_msm$type==kc,]
+  Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
 
-test_msm <- msm(state~time, subject=indiv,data = df_msm_BRCA,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~T01)
-df_result <- plyr::rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`T011`))
-df_result <- rbind(df_result,mstate_simple("BRCA","T01"))
+  test_msm <- msm(state~time, subject=indiv,data = df_msm_kc,gen.inits=TRUE, qmatrix=Qmat, deathexact = 3, covariates = ~stage)
+  df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII - IV`)
+  df_result <- rbind(df_result,mstate_simple(kc,"stage"))
 
-test_msm <- msm(state~time, subject=indiv,data = df_msm_BRCA,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~T02)
-df_result <- rbind(df_result,summary(test_msm)$hazard$`T021`)
-df_result <- rbind(df_result,mstate_simple("BRCA","T02"))
+  test_msm <- msm(state~time, subject=indiv,data = df_msm_kc,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~var_nulle)
+  df_result <- rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`var_nulle1`))
+  df_result <- rbind(df_result,mstate_simple(kc,"var_nulle"))
 
-df_result <- df_result[-1,]
-rownames(df_result) <- as.vector(sapply(c("msm - stage","mstate - stage","msm - aléatoire","mstate - aléatoire","msm - T01","mstate - T01","msm - T02","mstate - T02"),function(x) paste(x,c("1 -> 2","1 -> 3","2 -> 3"))))
-df_result <- df_result[c(1,4,2,5,3,6,7,10,8,11,9,12,13,16,14,17,15,18,19,22,20,23,21,24),]
+  # test_msm <- msm(state~time, subject=indiv,data = df_msm_kc,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~T01)
+  # df_result <- plyr::rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`T011`))
+  # df_result <- rbind(df_result,mstate_simple(kc,"T01"))
+  #
+  # test_msm <- msm(state~time, subject=indiv,data = df_msm_kc,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~T02)
+  # df_result <- rbind(df_result,summary(test_msm)$hazard$`T021`)
+  # df_result <- rbind(df_result,mstate_simple(kc,"T02"))
 
-signif(df_result,3)
+  df_result <- df_result[-1,]
+  rownames(df_result) <- as.vector(sapply(c("msm - stage","mstate - stage","msm - aléatoire","mstate - aléatoire"),function(x) paste(x,c("1 -> 2","1 -> 3","2 -> 3"))))
+  df_result <- df_result[c(1,4,2,5,3,6,7,10,8,11,9,12),]
+
+  signif(df_result,3)
 
 
 
-par(mar=c(5.1, 10, 4.1, 2.1))
-plot(0,0,col=0, ylim=c(-nrow(df_result), -1), xaxt="n", xlim=c(0,10),ylab="", xlab="HR", main="BRCA")
-# min(df_result[,2][is.finite(df_result[,2])]), max(df_result[,3][is.finite(df_result[,3])])))
-abline(v=1, lty=2, col="grey")
-for (i in 1:nrow(df_result)) {
-  col = ifelse(any(!is.finite(unlist(df_result[i,]))), 2, 1)
-  points(df_result[i,1], -i, pch=16, col=col)
-  arrows(df_result[i,2],-i,df_result[i,3],-i, col=col, length=0)
+  par(mar=c(5.1, 10, 4.1, 2.1))
+  plot(0,0,col=0, ylim=c(-nrow(df_result), -1), yaxt="n", xlim=c(0,10),ylab="", xlab="HR", main=kc)
+  # min(df_result[,2][is.finite(df_result[,2])]), max(df_result[,3][is.finite(df_result[,3])])))
+  abline(v=1, lty=2, col="grey")
+  for (i in 1:nrow(df_result)) {
+    col = ifelse(any(!is.finite(unlist(df_result[i,]))), 2, 1)
+    points(df_result[i,1], -i, pch=16, col=col)
+    arrows(df_result[i,2],-i,df_result[i,3],-i, col=col, length=0)
+  }
+  axis(2, -(1:nrow(df_result)), rownames(df_result), las=2)
+  par(mar=c(5.1, 4.1, 4.1, 2.1))  
 }
-axis(2, -(1:nrow(df_result)), rownames(df_result), las=2)
-par(mar=c(5.1, 4.1, 4.1, 2.1))
+
+
+
 ```
 
 ```{r eval=FALSE}
