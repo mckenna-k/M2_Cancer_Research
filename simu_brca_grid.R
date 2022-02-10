@@ -65,15 +65,15 @@ df_msm_creation <- function(df_new){
 
 n <- 1000
 Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
-val01 <- seq(0.1,0.9,0.2)
-val02 <- seq(0.1,0.9,0.2)
-val12 <- seq(0.1,0.9,0.2)
+val01 <- seq(0.1,0.9,0.4)
+val02 <- seq(0.1,0.9,0.4)
+val12 <- seq(0.1,0.9,0.4)
 
 
 # val01 = .6; val02 = .2; val12 = .3; # BRCA
 # val01 = .03; val02 = .01; val12 = .2; # BRCA crud init
 
-val01 = .7; val02 = .1; val12 = .5; # OV
+# val01 = .7; val02 = .1; val12 = .5; # OV
 
 
 
@@ -126,7 +126,6 @@ for(seed in 1:3){
 
 print(res)
 
-stop()
 
 
 d = data.frame(res)
@@ -136,20 +135,20 @@ d[d$deltahr01 > 10000,]$deltahr01 = 10000
 hist(d$deltahr01)
 plot(density(unlist(d$deltahr01)))
  
-m = lm(deltahr01~val01*val02*val12 , d)
+m = lm(deltahr01~i01*i02*i12 , d)
 anova(m)
 
 head(d)
 
-d$val01 = as.factor(d$val01)
-d$val02 = as.factor(d$val02)
-d$val12 = as.factor(d$val12)
+d$i01 = as.factor(d$i01)
+d$i02 = as.factor(d$i02)
+d$i12 = as.factor(d$i12)
 
-m = lm(deltahr01~val01*val02*val12 , d)
+m = lm(deltahr01~i01*i02*i12 , d)
 anova(m)
 
 par(mar=c(10, 4.1, 4.1, 2.1))
-boxplot(deltahr01~val01*val02*val12, d, las=2, xlab="")
+boxplot(deltahr01~i01*i02*i12, d, las=2, xlab="")
 par(mar=c(5.1, 4.1, 4.1, 2.1))
 
 
@@ -157,22 +156,23 @@ d[d$deltahr01 > 100,]$deltahr01 = 100
 d[d$deltahr02 > 100,]$deltahr02 = 100
 d[d$deltahr03 > 100,]$deltahr03 = 100
 
-m = lm(deltahr01~val01*val02*val12 , d)
+m = lm(deltahr01~i01*i02*i12 , d)
 anova(m)
 
 # BRCA 0.6, 0.2, 0.3
 # OV 0.7, 0.1, 0.5
 par(mar=c(10, 4.1, 4.1, 2.1))
 layout(matrix(1:3,1), respect=TRUE)
-boxplot(deltahr01~val01*val02*val12, d, las=2, xlab="")
-boxplot(deltahr02~val01*val02*val12, d, las=2, xlab="")
-boxplot(deltahr03~val01*val02*val12, d, las=2, xlab="")
+boxplot(deltahr01~i01*i02*i12, d, las=2, xlab="")
+boxplot(deltahr02~i01*i02*i12, d, las=2, xlab="")
+boxplot(deltahr03~i01*i02*i12, d, las=2, xlab="")
 par(mar=c(5.1, 4.1, 4.1, 2.1))
 
 
 
 
 
+stop()
 
 
 
