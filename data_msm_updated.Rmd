@@ -441,16 +441,18 @@ df_result <- df_result[c(1,4,2,5,3,6,7,10,8,11,9,12,13,16,14,17,15,18,19,22,20,2
 
 signif(df_result,3)
 
+
+
 par(mar=c(5.1, 10, 4.1, 2.1))
-plot(0,0,col=0, ylim=c(1, nrow(df_result)), xlim=c(0,10), yaxt="n", ylab="0", xlab="HR", main="BRCA")
+plot(0,0,col=0, ylim=c(-nrow(df_result), -1), xaxt="n", xlim=c(0,10),ylab="", xlab="HR", main="BRCA")
 # min(df_result[,2][is.finite(df_result[,2])]), max(df_result[,3][is.finite(df_result[,3])])))
 abline(v=1, lty=2, col="grey")
-for (i in rev(1:nrow(df_result))) {
+for (i in 1:nrow(df_result)) {
   col = ifelse(any(!is.finite(unlist(df_result[i,]))), 2, 1)
-  points(df_result[i,1], i, pch=16, col=col)
-  arrows(df_result[i,2],i,df_result[i,3],i, col=col, length=0)
+  points(df_result[i,1], -i, pch=16, col=col)
+  arrows(df_result[i,2],-i,df_result[i,3],-i, col=col, length=0)
 }
-axis(2, 1:nrow(df_result), rownames(df_result), las=2)
+axis(2, -(1:nrow(df_result)), rownames(df_result), las=2)
 par(mar=c(5.1, 4.1, 4.1, 2.1))
 ```
 
