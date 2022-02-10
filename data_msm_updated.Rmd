@@ -416,7 +416,10 @@ library(mstate)
 
 layout(matrix(1:2,1), respect=TRUE)
 
-for(kc in c("BRCA", "OV", "PAAD", "LUAD", "LUSC", "COAD")) {
+for(kc in 
+      c("BRCA", "OV", "PAAD", "LUAD", "LUSC", "COAD"#, "SIMU1", "SIMU2"
+       )
+    ) {   
   df_result <- data.frame("HR"=NA,"L"=NA,"U"=NA)
 
   df_msm_kc <- df_msm[df_msm$type==kc,]
@@ -424,11 +427,11 @@ for(kc in c("BRCA", "OV", "PAAD", "LUAD", "LUSC", "COAD")) {
 
   test_msm <- msm(state~time, subject=indiv,data = df_msm_kc,gen.inits=TRUE, qmatrix=Qmat, deathexact = 3, covariates = ~stage)
   df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII - IV`)
-  df_result <- rbind(df_result,mstate_simple(kc,"stage"))
+  df_result <- rbind(df_result, mstate_simple(kc, "stage")) # (ne) prend (pas) df_new en param
 
   test_msm <- msm(state~time, subject=indiv,data = df_msm_kc,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~var_nulle)
   df_result <- rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`var_nulle1`))
-  df_result <- rbind(df_result,mstate_simple(kc,"var_nulle"))
+  df_result <- rbind(df_result, mstate_simple(kc, "var_nulle"))
 
   # test_msm <- msm(state~time, subject=indiv,data = df_msm_kc,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~T01)
   # df_result <- plyr::rbind.fill(df_result,as.data.frame(summary(test_msm)$hazard$`T011`))
@@ -462,6 +465,57 @@ for(kc in c("BRCA", "OV", "PAAD", "LUAD", "LUSC", "COAD")) {
 
 
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ```{r eval=FALSE}
 
