@@ -1,6 +1,6 @@
-process <- function(n, i01, i02, i12, i00=NULL, i11=NULL, seed=1){
+process <- function(n, i01, i02, i12, i00=NULL, seed=1){
   set.seed(seed)
-  if(is.null(i00) | is.null(i11)){
+  if(is.null(i00)){
     t1 <- rexp(n,i01+i02) #temps de passage de 0 à 1 ou 0 à 2
     s1 <- rbinom(n,1,i02/(i01+i02))+1 #détermination de l'état atteint (1 ou 2)
     t2 <- rexp(n,i12) #temps de passage de l'état 1 à 2 à partir du temps d'arrivée à 1
@@ -10,11 +10,14 @@ process <- function(n, i01, i02, i12, i00=NULL, i11=NULL, seed=1){
                      "T02"=s1-1,"T02.time"=ifelse(s1==2,t1,t1+t2),
                      "T12"=-(s1-2),"T12.time"=ifelse(s1==1,t2,0))
   }  else {
-    t1 <- rexp(n,i01+i02+i00) #temps de passage de 0 à 1 ou 0 à 2 ou censor 
-    s1 <- apply(rmultinom(n, size = 1, prob = c(i00/(i01+i02+i00), i01/(i01+i02+i00), i02/(i01+i02+i00)))==1,2,which)-1 #détermination de l'état atteint (1 ou 2 ou 0)
-    t2 <- rexp(n,i12+i11) # idem
-    s2 <- rbinom(n,1,i12/(i12+i11)) # 2 ou 1
-    df <- data.frame("DSS"=ifelse(s1 > 0,1,0),"DSS.time"=ifelse(s1==1,t1+t2,t1),
+    tcensure <- rexp(n,i00) #temps de censure pour chaque individu
+    tmin0102 <- rexp(n,i01+i02) #min temps de passage de 0 à 1 et de 0 à 2
+    t1 <- apply(matrix(c(tcensure,tmin0102),byrow = FALSE,ncol=2),1,min) #min temps de passage de 0 à 1 et de 0 à 2 et du temps de censure
+    s1 <- ifelse(tmin0102 < tcensure,rbinom(n, 1, i02/(i01+i02))+1,0) #détermination de l'état atteint (1 ou 2 ou censure)
+    tmin12 <- rexp(n,i12)
+    t2 <- apply(matrix(c(tmin12,tcensure-t1),byrow = FALSE,ncol=2),1,min) #min temps de passage de 1 à 2 et du temps de censure
+    s2 <- ifelse(tmin12 < tcensure,1,0) #détermination de la censure de la transition 1 -> 2
+    df <- data.frame("DSS"=ifelse(s1 == 2 | (s1 == 1 & s2 == 1),1,0),"DSS.time"=ifelse(s1==1,t1+t2,t1),
                      "PFI"=ifelse(s1 > 0,1,0),"PFI.time"=t1,
                      "T01"=ifelse(s1==1,1,0),"T01.time"=t1,
                      "T02"=ifelse(s1-1 > 0,1,0),"T02.time"=ifelse(s1==2 | s1==0,t1,t1+t2),
@@ -35,12 +38,10 @@ head(data)
 
 
 
-df_simu1 <- process(n=1000,0.3,0.3,0.3,0.3,0.3,97)
+df_simu1 <- process(n=1000,0.3,0.3,0.3,0.3,97)
 df_simu1_toadd = df_simu1[,1:4]
 df_simu1_toadd = cbind(X1=1:nrow(df_simu1_toadd) + nrow(data), df_simu1_toadd)
 head(df_simu1_toadd)
-
-
 
 df_simu1_toadd$DSS.time=df_simu1_toadd$DSS.time*365.25 
 df_simu1_toadd$PFI.time=df_simu1_toadd$PFI.time*365.25
