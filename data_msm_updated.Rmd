@@ -16,6 +16,7 @@ library(tidyverse)
 library(msm)
 library(survival)
 source("common.R")
+kcs = c("BRCA", "OV", "PAAD", "LUAD", "LUSC", "COAD", "MESO", "PAAD", "UCS", "THYM")
 ```
 
 ```{r}
@@ -85,6 +86,7 @@ df_new$age <- as.numeric(as.character(df_new$age))
 df_new = df_new[!is.na(df_new$age),] #nettoyage des NA de l'age
 # Dois les converti depuis factors pour qu'ils soit bien selectionner dans le boucle for
 df_new <- df_new %>% mutate_at(c('type','stage','age','var_nulle','gender'), as.character)
+df_new = df_new[df_new$type %in% kcs,]
 ```
 
 ```{r,echo=FALSE}
@@ -380,7 +382,7 @@ mstate_boot <- function(name,name_covar,n){
 ```
 
 
-```{r brca,echo=FALSE,warning=FALSE,message=FALSE}
+```{r brca, echo=FALSE, warning=FALSE, message=FALSE}
 #####################
 library(msm)
 library(mstate)
@@ -388,10 +390,7 @@ library(mstate)
 
 layout(matrix(1:2,1), respect=TRUE)
 
-for(kc in 
-      c("BRCA", "OV", "PAAD", "LUAD", "LUSC", "COAD", "SIMU1", "SIMU2"
-       )
-    ) {
+for (kc in unique(df_new$type)) {
   df_result <- data.frame("HR"=NA,"L"=NA,"U"=NA)
 
   df_msm_kc <- df_msm[df_msm$type==kc,]
@@ -451,7 +450,8 @@ for(kc in
 # PCA 
 
 ```{r}
-data = sapply(unique(df_msm$type), function(kc) {
+data = sapply(unique(df_new$type), function(kc) {
+  ret = generate_params_for_sim(kc=kc, df_new)
   Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
   Q2 <- crudeinits.msm(state~time, subject=indiv,data = df_msm[df_msm$type == kc,],qmatrix= Qmat)
   i01 = Q2[1,2]
@@ -473,15 +473,15 @@ cols = 1 #adjustcolor(colors[as.numeric(data_train[rownames(pca$x),]$histology)]
 i=3
 j=2
 plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=16)
-text(pca$x[,i], pca$x[,j], rownames(pca$x))
+text(pca$x[,i], pca$x[,j], rownames(pca$x), col=sample(2:8, nrow(pca$x), replace=TRUE))
 i=1
 j=3
 plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=16)
-text(pca$x[,i], pca$x[,j], rownames(pca$x))
+text(pca$x[,i], pca$x[,j], rownames(pca$x), col=sample(2:8, nrow(pca$x), replace=TRUE))
 i=1
 j=2
 plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=16)
-text(pca$x[,i], pca$x[,j], rownames(pca$x))
+text(pca$x[,i], pca$x[,j], rownames(pca$x), col=sample(2:8, nrow(pca$x), replace=TRUE))
 # i=4
 # j=5
 # plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=".")

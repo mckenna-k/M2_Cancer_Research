@@ -40,6 +40,8 @@ df_simu1_toadd = df_simu1[,1:4]
 df_simu1_toadd = cbind(X1=1:nrow(df_simu1_toadd) + nrow(data), df_simu1_toadd)
 head(df_simu1_toadd)
 
+
+
 df_simu1_toadd$DSS.time=df_simu1_toadd$DSS.time*365.25 
 df_simu1_toadd$PFI.time=df_simu1_toadd$PFI.time*365.25
 

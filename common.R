@@ -1,6 +1,6 @@
-process <- function(n, i01, i02, i12, censor1=NULL, censor2=NULL, seed=1){
+process <- function(n, i01, i02, i12, i00=NULL, i11=NULL, seed=1){
   set.seed(seed)
-  if(is.null(censor1) | is.null(censor2)){
+  if(is.null(i00) | is.null(i11)){
     t1 <- rexp(n,i01+i02) #temps de passage de 0 à 1 ou 0 à 2
     s1 <- rbinom(n,1,i02/(i01+i02))+1 #détermination de l'état atteint (1 ou 2)
     t2 <- rexp(n,i12) #temps de passage de l'état 1 à 2 à partir du temps d'arrivée à 1
@@ -10,10 +10,10 @@ process <- function(n, i01, i02, i12, censor1=NULL, censor2=NULL, seed=1){
                      "T02"=s1-1,"T02.time"=ifelse(s1==2,t1,t1+t2),
                      "T12"=-(s1-2),"T12.time"=ifelse(s1==1,t2,0))
   }  else {
-    t1 <- rexp(n,i01+i02+censor1) #temps de passage de 0 à 1 ou 0 à 2
-    s1 <- apply(rmultinom(n, size = 1, prob = c(censor1/(i01+i02+censor1),i01/(i01+i02+censor1),i02/(i01+i02+censor1)))==1,2,which)-1 #détermination de l'état atteint (1 ou 2)
-    t2 <- rexp(n,i12+censor2)
-    s2 <- rbinom(n,1,i12/(i12+censor2))
+    t1 <- rexp(n,i01+i02+i00) #temps de passage de 0 à 1 ou 0 à 2 ou censor 
+    s1 <- apply(rmultinom(n, size = 1, prob = c(i00/(i01+i02+i00), i01/(i01+i02+i00), i02/(i01+i02+i00)))==1,2,which)-1 #détermination de l'état atteint (1 ou 2 ou 0)
+    t2 <- rexp(n,i12+i11) # idem
+    s2 <- rbinom(n,1,i12/(i12+i11)) # 2 ou 1
     df <- data.frame("DSS"=ifelse(s1 > 0,1,0),"DSS.time"=ifelse(s1==1,t1+t2,t1),
                      "PFI"=ifelse(s1 > 0,1,0),"PFI.time"=t1,
                      "T01"=ifelse(s1==1,1,0),"T01.time"=t1,
@@ -26,20 +26,29 @@ process <- function(n, i01, i02, i12, censor1=NULL, censor2=NULL, seed=1){
 
 
 generate_params_for_sim = function(kc="BRCA", df_new) {
+  # kc = "BRCA"
   Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
   df_msm = df_new_2_df_msm(df_new)
-  Q2 <- crudeinits.msm(state~time, subject=indiv,data = df_msm[df_msm$type == kc,],qmatrix= Qmat)
+  df_msm = df_msm[df_msm$type == kc,]
+  n = nrow(df_msm)  
+  Q2 <- crudeinits.msm(state~time, subject=indiv, data=df_msm[df_msm$type == kc,],qmatrix= Qmat)
   i01 = Q2[1,2]
   i02 = Q2[1,3]
   i12 = Q2[2,3]
-  # d = df_msm[df_msm$type == kc,]
+  d = df_new[df_new$type == kc,]
+  propi00 = 1 - sum(d$T01 + d$T02) / nrow(d)
+  propi11 = 1 - sum(d$T12) / sum(d$T01)
+  i00 = propi00 * (i01 + i02) / (1 - propi00)
+  i11 = propi11*i12 / (1-propi11)
+  # 1 / mean(d$PFI) - i01 -i02 # likelihodd based (Theo)
+   
   # head(d)
   # table(d$T01)
-  # censor1 = exp(-)
-  # censor2 = exp(-)
-  
-  return(c(i01=i01, i02=i02, i12=i12))  
-
+  # table(d$T02)
+  # table(d$T12)
+  # i00 = exp(-1)
+  # i11 = exp(-1)
+  return(c(n=n, i01=i01, i02=i02, i12=i12, i00=i00, i11=i11))  
 }
 
 
