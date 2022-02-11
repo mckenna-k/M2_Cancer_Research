@@ -15,6 +15,7 @@ knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, 
 library(tidyverse)
 library(msm)
 library(survival)
+source("common.R")
 ```
 
 ```{r}
@@ -35,41 +36,42 @@ data[!is.na(data$PFI.time > data$DSS.time) & data$PFI.time > data$DSS.time,c("DS
 data[!is.na(data$PFI.time > data$DSS.time) & data$PFI.time > data$DSS.time,c("DSS.time", "PFI.time")]
 dim(data)
 # Creation de colonnes pour la création de dataframe de matrice de transition
-pfiNotDead.time <- data$PFI.time/365.25
-pfiNotDead <- data$PFI
-pfiNotDead[data$PFI.time==data$DSS.time] <- 0
-dssDirect.time <- data$DSS.time/365.25
-dssDirect <- data$DSS
-dssDirect[!data$PFI.time==data$DSS.time] <- 0
-dssRelapse.time <- (data$DSS.time-data$PFI.time)/365.25
-dssRelapse.time[pfiNotDead==0] <- 0
-dssRelapse <- data$DSS
-dssRelapse[data$PFI.time==data$DSS.time] <- 0
+data$pfiNotDead.time <- data$PFI.time/365.25
+data$pfiNotDead <- data$PFI
+data$pfiNotDead[data$PFI.time==data$DSS.time] <- 0
+data$dssDirect.time <- data$DSS.time/365.25
+data$dssDirect <- data$DSS
+data$dssDirect[!data$PFI.time==data$DSS.time] <- 0
+data$dssRelapse.time <- (data$DSS.time-data$PFI.time)/365.25
+data$dssRelapse.time[data$pfiNotDead==0] <- 0
+data$dssRelapse <- data$DSS
+data$dssRelapse[data$PFI.time==data$DSS.time] <- 0
 # Co variates
 # Creation de donnee simule
-covar <-  sample(c(0,1),11160,replace=TRUE)
+data$var_nulle <-  sample(c(0,1),nrow(data), replace=TRUE)
+# data$null <-  sample(c(0,1),11160,replace=TRUE)
 # Recode les levels du stage du tumeur pour avoir moins de niveau.  
 # Fait qu'il y a seulement stage 1/2, 3/4 et NA; ou 1/2, 3/4, autre et NA  
 stage <- as.factor(data$ajcc_pathologic_tumor_stage)
-levels(stage) <- c("NA","NA","NA","NA","I - II","I - II","other","I - II","I - II","I - II","I - II","I - II","I - II","I - II","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","III - IV","other")
+levels(stage) <- c("NA","NA","NA","NA","I-II","I-II","other","I-II","I-II","I-II","I-II","I-II","I-II","I-II","III-IV","III-IV","III-IV","III-IV","III-IV","III-IV","III-IV","III-IV","other")
 stageBis <- as.factor(data$clinical_stage)
-levels(stageBis) <- c("NA","NA","NA","I - II","I - II","I - II","III - IV","III - IV","III - IV",rep("I - II",14),rep("III - IV",6),"I - II",rep("III - IV",4))
-stage <- sapply(1:length(stage),function(i){
+levels(stageBis) <- c("NA","NA","NA","I-II","I-II","I-II","III-IV","III-IV","III-IV",rep("I-II",14),rep("III-IV",6),"I-II",rep("III-IV",4))
+data$stage <- sapply(1:length(stage),function(i){
   if(stage[i]=="NA") return(stageBis[i])
   else return(stage[i])
 })
 # Creation d'un nouveau dataframe plus petit et facile a manipuler.  
 df_new <- data.frame(
   Patient=data$X,
-  DSS=data$DSS   , DSS.time=data$DSS.time/365.25 ,
-  PFI=data$PFI   , PFI.time=data$PFI.time/365.25 ,
-  T01=pfiNotDead , T01.time=pfiNotDead.time      ,
-  T02=dssDirect  , T02.time=dssDirect.time       ,
-  T12=dssRelapse , T12.time=dssRelapse.time      ,
-  stage=stage                                    ,
-  var_nulle=as.character(covar)                  ,
-  gender=data$gender                             ,
-  age=data$age_at_initial_pathologic_diagnosis   ,
+  DSS=data$DSS        , DSS.time=data$DSS.time/365.25 ,
+  PFI=data$PFI        , PFI.time=data$PFI.time/365.25 ,
+  T01=data$pfiNotDead , T01.time=data$pfiNotDead.time ,
+  T02=data$dssDirect  , T02.time=data$dssDirect.time  ,
+  T12=data$dssRelapse , T12.time=data$dssRelapse.time ,
+  stage=data$stage                                    ,
+  var_nulle=data$var_nulle                            ,
+  gender=data$gender                                  ,
+  age=data$age_at_initial_pathologic_diagnosis        ,
   type=data$type
 )
 # Enleve les NA
@@ -77,7 +79,7 @@ df_new = df_new[!apply(is.na(df_new), 1, any),]
 dim(df_new)
 # Enleve les stage qui ont le niveau NA ou other
 df_new <- df_new[-which(is.element(df_new$stage,c("NA","other"))),]
-df_new$stage <- factor(df_new$stage,c("I - II","III - IV"))
+df_new$stage <- factor(df_new$stage,c("I-II","III-IV"))
 dim(df_new)
 df_new$age <- as.numeric(as.character(df_new$age))
 df_new = df_new[!is.na(df_new$age),] #nettoyage des NA de l'age
@@ -86,84 +88,17 @@ df_new <- df_new %>% mutate_at(c('type','stage','age','var_nulle','gender'), as.
 ```
 
 ```{r,echo=FALSE}
-#### Ajout de deux jeux simulés
-process <- function(n,l01,l02,l12,censor1=NULL,censor2=NULL,seed=1){
-  set.seed(seed)
-  if(is.null(censor1) | is.null(censor2)){
-    t1 <- rexp(n,l01+l02) #temps de passage de 0 à 1 ou 0 à 2
-    s1 <- rbinom(n,1,l02/(l01+l02))+1 #détermination de l'état atteint (1 ou 2)
-    t2 <- rexp(n,l12) #temps de passage de l'état 1 à 2 à partir du temps d'arrivée à 1
-    df <- data.frame("DSS"=rep(1,n),"DSS.time"=ifelse(s1==1,t1+t2,t1),
-                     "PFI"=rep(1,n),"PFI.time"=t1,
-                     "T01"=-(s1-2),"T01.time"=t1,
-                     "T02"=s1-1,"T02.time"=ifelse(s1==2,t1,t1+t2),
-                     "T12"=-(s1-2),"T12.time"=ifelse(s1==1,t2,0))
-  }
-  else{
-    t1 <- rexp(n,l01+l02+censor1) #temps de passage de 0 à 1 ou 0 à 2
-    s1 <- apply(rmultinom(n, size = 1, prob = c(censor1/(l01+l02+censor1),l01/(l01+l02+censor1),l02/(l01+l02+censor1)))==1,2,which)-1 #détermination de l'état atteint (1 ou 2)
-    t2 <- rexp(n,l12+censor2)
-    s2 <- rbinom(n,1,l12/(l12+censor2))
-    df <- data.frame("DSS"=ifelse(s1 > 0,1,0),"DSS.time"=ifelse(s1==1,t1+t2,t1),
-                     "PFI"=ifelse(s1 > 0,1,0),"PFI.time"=t1,
-                     "T01"=ifelse(s1==1,1,0),"T01.time"=t1,
-                     "T02"=ifelse(s1-1 > 0,1,0),"T02.time"=ifelse(s1==2 | s1==0,t1,t1+t2),
-                     "T12"=ifelse(s1==1 & s2==1,1,0),"T12.time"=ifelse(s1==1,t2,0))
-  }
-  return(df)
-}
-
-stage_1 <- sample(c("I - II","III - IV"),1000,replace = TRUE,prob=c(0.3,0.9))
+stage_1 <- sample(c("I-II","III-IV"),1000,replace = TRUE,prob=c(0.3,0.9))
 df_simu1 <- cbind("Patient"=as.character(20001:21000),process(n=1000,0.3,0.3,0.3,0.3,0.3,97),"stage"=stage_1,"var_nulle"=sample(0:1,1000,replace = TRUE),"gender"=rep(NA,1000),"age"=rep(NA,1000),"type"=rep("SIMU1",1000))
 
-stage_2 <- sample(c("I - II","III - IV"),1000,replace = TRUE,prob=c(0.2,0.8))
+stage_2 <- sample(c("I-II","III-IV"),1000,replace = TRUE,prob=c(0.2,0.8))
 df_simu2 <- cbind("Patient"=as.character(21001:22000),process(n=100,0.3,0.6,0.6,0.2,0.2,97),"stage"=stage_2,"var_nulle"=sample(0:1,1000,replace = TRUE),"gender"=rep(NA,1000),"age"=rep(NA,1000),"type"=rep("SIMU2",1000))
 
 df_new <- rbind(df_new,df_simu1,df_simu2)
 ```
 
 ```{r}
-#* Section plus compliquer a comprendre
-#* Chaque personne peut atteindre max de 3 phase,  soit 1-1 (censure pour PFI et DSS), 1-2-2 (censure pour DSS), 
-#* 1-3 (pas de censure, PFI.time == DSS.time), ou 1-2-3 (pas de censure, PFI.time != DSS.time) selon leur prognosis et leur censure. 
-#* Donc il y a 3 matrice qui sont cree chaqu'un avec 4 colonne: indiv, time, state et type
-#* Dans un boucle for du longeur du dataframe des patients (qu'on n'a pas retirer) pour chaque matrix, on regarde quel phase doit placer le patient
-#* et on lui donne le bonne 'state'.  Si le personne n'a pas de troisieme phase, on met NA, qu'on enlevera apres.  
-indiv_msm <- c((1:nrow(df_new)),
-               (1:nrow(df_new))[(df_new$T01.time < df_new$T02.time) & df_new$T01==1],
-               (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==1],
-               (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==0],
-               (1:nrow(df_new))[df_new$T02 == 1],
-               (1:nrow(df_new))[df_new$T02 == 0 & df_new$T01==0])
-state_msm <- c(rep(1,nrow(df_new)),
-               rep(2,sum((df_new$T01.time < df_new$T02.time) & df_new$T01==1)),
-               rep(3,sum(df_new$T12.time > 0 & df_new$T12==1)),
-               rep(2,sum(df_new$T12.time > 0 & df_new$T12==0)),
-               rep(3,sum(df_new$T02 == 1)),
-               rep(1,sum(df_new$T02 == 0 & df_new$T01==0)))
-time_msm <- c(rep(0,nrow(df_new)),
-              df_new$T01.time[(df_new$T01.time < df_new$T02.time) & df_new$T01==1],
-              (df_new$T12.time + df_new$T01.time)[df_new$T12.time > 0 & df_new$T12==1],
-              (df_new$T12.time + df_new$T01.time)[df_new$T12.time > 0 & df_new$T12==0],
-              df_new$T02.time[df_new$T02 == 1],
-              df_new$T02.time[df_new$T02 == 0 & df_new$T01==0])
-df_msm <- data.frame("indiv"=indiv_msm,"state"=state_msm,"time"=time_msm)
-df_msm <- df_msm[order(df_msm$indiv,df_msm$time),]
-rownames(df_msm) <- 1:nrow(df_msm)
-df_msm$type <- as.character(df_new$type[df_msm$indiv])
-# Combine les 3 matrices 
-# Ajoute les colonnes depuis df_new pour utiliser les covariants
-# Convert les donnees en bonne type de donnees
-# Enleve les donnees qui on un 'state' == NA
-df_msm$var_nulle <- as.character(covar[df_msm$indiv])
-df_msm$stage <- as.character(df_new$stage[df_msm$indiv])
-df_msm$T01 <- as.character(df_new$T01[df_msm$indiv])
-df_msm$T02 <- as.character(df_new$T02[df_msm$indiv])
-df_msm$age <- as.numeric(df_new$age[df_msm$indiv])
-# Test pour verifier les donnees sont correct
-# unique(df_msm[df_msm$stage=='III - IV'& df_msm$type=='PAAD',]$indiv)
-# unique(df_new[df_new$stage=='III - IV'& df_new$type=='PAAD',]$Patient)
-# Regarde le table de transition d'etats et cree un Q matrix de base.  
+df_msm = df_new_2_df_msm(df_new)
 statetable.msm(state, indiv, df_msm)
 Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
 par(mfrow = c(1,1))
@@ -276,7 +211,7 @@ cancer_type = c("BRCA","OV","PAAD")
 res_msm_stage = data.frame("Type"=NA,"HR T01"=NA, "low T01"= NA,"high T01"=NA, "HR T02"=NA, "low T02"= NA,"high T02"=NA,"HR T12"=NA, "low T12"= NA,"high T12"=NA)
 for(i in 1:length(cancer_type)){
   msm_stage = msm(state~time, subject=indiv,data = df_msm[df_msm$type == cancer_type[i],], gen.inits = TRUE,qmatrix= Qmat, deathexact = 3,covariates = ~stage)
-  res_msm_stage[i,] =c ((cancer_type[i]), round(summary(msm_stage)$hazard$`stageIII - IV`[1],3), round(summary(msm_stage)$hazard$`stageIII - IV`[4],3), round(summary(msm_stage)$hazard$`stageIII - IV`[7],3), round(summary(msm_stage)$hazard$`stageIII - IV`[2],3), round(summary(msm_stage)$hazard$`stageIII - IV`[5],3), round(summary(msm_stage)$hazard$`stageIII - IV`[8],3), round(summary(msm_stage)$hazard$`stageIII - IV`[3],3), round(summary(msm_stage)$hazard$`stageIII - IV`[6],3), round(summary(msm_stage)$hazard$`stageIII - IV`[9],3))
+  res_msm_stage[i,] =c ((cancer_type[i]), round(summary(msm_stage)$hazard$`stageIII-IV`[1],3), round(summary(msm_stage)$hazard$`stageIII-IV`[4],3), round(summary(msm_stage)$hazard$`stageIII-IV`[7],3), round(summary(msm_stage)$hazard$`stageIII-IV`[2],3), round(summary(msm_stage)$hazard$`stageIII-IV`[5],3), round(summary(msm_stage)$hazard$`stageIII-IV`[8],3), round(summary(msm_stage)$hazard$`stageIII-IV`[3],3), round(summary(msm_stage)$hazard$`stageIII-IV`[6],3), round(summary(msm_stage)$hazard$`stageIII-IV`[9],3))
 }
 res_msm_stage
 ```
@@ -302,15 +237,15 @@ res_msm_var_nulle
 statetable.msm(state, indiv, df_msm)
 data_brca = df_msm[df_msm$type == 'BRCA',]
 statetable.msm(state, indiv, data_brca)
-data_brca_2 = data_brca[data_brca$stage=='III - IV',]
+data_brca_2 = data_brca[data_brca$stage=='III-IV',]
 statetable.msm(state, indiv, data_brca_2)
 data_paad = df_msm[df_msm$type == 'PAAD',]
 statetable.msm(state, indiv, data_paad)
-data_paad_2=data_paad[data_paad$stage=='III - IV',]
+data_paad_2=data_paad[data_paad$stage=='III-IV',]
 statetable.msm(state, indiv, data_paad_2)
 data_ov = df_msm[df_msm$type == 'OV',]
 statetable.msm(state, indiv, data_ov)
-data_ov_2 = data_ov[data_ov$stage=='III - IV',]
+data_ov_2 = data_ov[data_ov$stage=='III-IV',]
 statetable.msm(state, indiv, data_ov_2)
 ```
 
@@ -320,23 +255,23 @@ statetable.msm(state, indiv, data_ov_2)
 # controle effectifs de_new df_msm
 # data_brca = df_new[df_new$type == 'BRCA',]
 # data_paad = df_new[df_new$type == 'PAAD',]
-# data_paad_2=data_paad[data_paad$stage=='III - IV',]
+# data_paad_2=data_paad[data_paad$stage=='III-IV',]
 # dim(data_paad_2)
 # unique(data_paad_2$Patient)
 # 
 # data_prov2 = df_msm[df_msm$type == 'PAAD',]
-# data_prov2 = data_prov2[data_prov2$stage=='III - IV',]
+# data_prov2 = data_prov2[data_prov2$stage=='III-IV',]
 # length(unique(data_prov2$indiv))
 # data_paad = df_new[df_new$type == 'OV',]
-# data_paad_2=data_paad[data_paad$stage=='III - IV',]
+# data_paad_2=data_paad[data_paad$stage=='III-IV',]
 # dim(data_paad_2)
 # unique(data_paad_2$Patient)
 # 
 # data_prov2 = df_msm[df_msm$type == 'OV',]
-# data_prov2 = data_prov2[data_prov2$stage=='III - IV',]
+# data_prov2 = data_prov2[data_prov2$stage=='III-IV',]
 # length(unique(data_prov2$indiv))
 # data_prov2 = df_msm[df_msm$type == 'OV',]
-# data_prov2 = data_prov2[data_prov2$stage=='I - II',]
+# data_prov2 = data_prov2[data_prov2$stage=='I-II',]
 # length(unique(data_prov2$indiv))
 ```
 
@@ -463,7 +398,7 @@ for(kc in
   Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
 
   test_msm <- msm(state~time, subject=indiv,data = df_msm_kc,gen.inits=TRUE, qmatrix=Qmat, deathexact = 3, covariates = ~stage)
-  df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII - IV`)
+  df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII-IV`)
   df_result <- rbind(df_result, mstate_simple(kc, "stage")) # (ne) prend (pas) df_new en param
 
   test_msm <- msm(state~time, subject=indiv,data = df_msm_kc,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~var_nulle)
@@ -479,6 +414,7 @@ for(kc in
   # df_result <- rbind(df_result,mstate_simple(kc,"T02"))
 
   df_result <- df_result[-1,]
+  df_result
   rownames(df_result) <- as.vector(sapply(c("msm - stage","mstate - stage","msm - aléatoire","mstate - aléatoire"),function(x) paste(x,c("1 -> 2","1 -> 3","2 -> 3"))))
   df_result <- df_result[c(1,4,2,5,3,6,7,10,8,11,9,12),]
 
@@ -537,12 +473,15 @@ cols = 1 #adjustcolor(colors[as.numeric(data_train[rownames(pca$x),]$histology)]
 i=3
 j=2
 plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=16)
+text(pca$x[,i], pca$x[,j], rownames(pca$x))
 i=1
 j=3
 plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=16)
+text(pca$x[,i], pca$x[,j], rownames(pca$x))
 i=1
 j=2
 plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=16)
+text(pca$x[,i], pca$x[,j], rownames(pca$x))
 # i=4
 # j=5
 # plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), col=cols, pch=".")
@@ -652,7 +591,7 @@ df_msm_OV <- df_msm[df_msm$type=="OV",]
 Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
 
 test_msm <- msm(state~time, subject=indiv,data = df_msm_OV,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~stage)
-df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII - IV`)
+df_result <- rbind(df_result,summary(test_msm)$hazard$`stageIII-IV`)
 df_result <- rbind(df_result,mstate_simple("OV","stage"))
 
 test_msm <- msm(state~time, subject=indiv,data = df_msm_OV,gen.inits=TRUE,qmatrix=Qmat, deathexact = 3,covariates = ~var_nulle)
