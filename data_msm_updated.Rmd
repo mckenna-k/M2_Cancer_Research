@@ -654,3 +654,7 @@ df_result_boot <- df_result_boot[-1,]
 res_res <- cbind(df_result,"mean"=vec_result_boot,df_result_boot)
 res_res
 ```
+
+
+
+

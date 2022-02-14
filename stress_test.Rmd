@@ -1,0 +1,180 @@
+---
+title: "Prétraitement des données de survie"
+author: "Shuyu, Marame, Kevin, Théo, Florence, Florent"
+date: "`r Sys.Date()`"
+output: 
+  rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=FALSE, results="hide")
+source("common.R")
+```
+
+L’objectif est de vérifier que le traitement fait sur les données de [XXX] pour obtenir les colonnes T01 T02 T12 et les temps correspondnants est le même que le prétraitement fait dans le simulateur pour obtenir les même informations.
+
+# Import des données TCGA
+
+On importe ici les données TCGA tels qu’elles ont été publiées dans [XXX]
+
+On réduit ces données aux colonnes que l’on va exploiter.
+
+```{r data, echo=TRUE}
+data = openxlsx::read.xlsx("TCGA-CDR-SupplementalTableS1.xlsx", sheet = "TCGA-CDR", na.strings="#N/A")
+data = data[,c(
+  "X1", 
+  "DSS", 
+  "DSS.time", 
+  "PFI", 
+  "PFI.time", 
+  "type", 
+  "ajcc_pathologic_tumor_stage", 
+  "clinical_stage", 
+  "gender",  
+  "age_at_initial_pathologic_diagnosis")]
+```
+
+# Fusion avec des données simulées 
+
+On simule ici un nouveau jeu de données selon un precessus markovien.
+
+On ajoute ensuite ces données aux données réelles
+
+```{r simu, echo=TRUE, results="verbatim"}
+dfsimu = dfsimu_creation_1time(idx_last_indiv=nrow(data))
+head(dfsimu)
+if (any(!colnames(data) %in% colnames(dfsimu))) {stop("problem in colnames")}
+data = rbind(data, dfsimu[,colnames(data)])
+head(data)
+tail(data)
+```
+
+
+# Preprocessing
+
+On crée ici la data.frame `df_new`.
+
+```{r preproc data, echo=TRUE, results="verbatim"}
+df_new = dfnew_creation(data)
+head(df_new[df_new$type=="SIMU1",])
+```
+
+
+
+# Vérification
+
+```{r echo=TRUE, results="verbatim"}
+print(sum(df_new[df_new$type=="SIMU1",]$DSS       != dfsimu$DSS)      )
+print(sum(df_new[df_new$type=="SIMU1",]$PFI       != dfsimu$PFI )     )
+print(sum(df_new[df_new$type=="SIMU1",]$T01       != dfsimu$T01)      )
+print(sum(df_new[df_new$type=="SIMU1",]$T02       != dfsimu$T02)      )
+print(sum(df_new[df_new$type=="SIMU1",]$T12       != dfsimu$T12 )     )
+print(max(abs(df_new[df_new$type=="SIMU1",]$DSS.time  - dfsimu$DSS.time/365.25)))
+print(max(abs(df_new[df_new$type=="SIMU1",]$PFI.time  - dfsimu$PFI.time/365.25)))
+print(max(abs(df_new[df_new$type=="SIMU1",]$T01.time  - dfsimu$T01.time) ))
+print(max(abs(df_new[df_new$type=="SIMU1",]$T02.time  - dfsimu$T02.time )))
+print(max(abs(df_new[df_new$type=="SIMU1",]$T12.time  - dfsimu$T12.time )))
+```
+
+
+
+# Markov process
+
+On crée ici deux jeux de données simulées avec deux méthodes:
+
+  - la premiere calculer les temps et la censure en même temps,
+  - la seconde crée en 2 temps dans deux focntions séparées.
+
+On fait attention à la gestion des seeds mais les résultats ne sont pas identiques.
+
+Il doit y avloir un problèmem dans l’une des deux méthodes voir les deux.
+
+
+```{r echo=TRUE, results="verbatim"}
+source("common.R")
+censor_param = .4
+seed = 1
+n = 100
+i01 = .6 
+i02 = .2 
+i12 = .3 
+
+
+
+
+dfsimu2 = process(n, i01, i02, i12, censor_param=NULL, seed)
+# dfsimu2$DSS      == dfsimu$DSS
+# dfsimu2$DSS.time == dfsimu$DSS.time
+# dfsimu2$PFI      == dfsimu$PFI
+# dfsimu2$PFI.time == dfsimu$PFI.time
+
+dfsimu2 = add_censor(dfsimu2, censor_param, seed)
+# dfsimu2$DSS      == dfsimu$DSS
+# dfsimu2$DSS.time == dfsimu$DSS.time
+# dfsimu2$PFI      == dfsimu$PFI
+# dfsimu2$PFI.time == dfsimu$PFI.time
+
+
+dfsimu1 = process(n, i01, i02, i12, censor_param, seed)
+# dfsimu1$DSS      == dfsimu$DSS
+# dfsimu1$DSS.time == dfsimu$DSS.time
+# dfsimu1$PFI      == dfsimu$PFI
+# dfsimu1$PFI.time == dfsimu$PFI.time
+
+dfsimu2$DSS      == dfsimu1$DSS
+dfsimu2$DSS.time == dfsimu1$DSS.time
+dfsimu2$PFI      == dfsimu1$PFI
+dfsimu2$PFI.time == dfsimu1$PFI.time
+
+dfsimu2[dfsimu2$DSS != dfsimu1$DSS,]$DSS
+dfsimu1[dfsimu2$DSS != dfsimu1$DSS,]$DSS
+
+
+
+dfsimu2 = dfsimu_creation_2times(n, i01, i02, i12, censor_param, seed)
+dfsimu1 = dfsimu_creation_1time(n, i01, i02, i12, censor_param, seed)
+
+dfsimu2$DSS      == dfsimu1$DSS
+dfsimu2$DSS.time == dfsimu1$DSS.time
+dfsimu2$PFI      == dfsimu1$PFI
+dfsimu2$PFI.time == dfsimu1$PFI.time
+
+dfsimu2[dfsimu2$DSS != dfsimu1$DSS,]$DSS
+dfsimu1[dfsimu2$DSS != dfsimu1$DSS,]$DSS
+
+
+dfsimu2[dfsimu2$DSS.time != dfsimu1$DSS.time,]$DSS.time
+dfsimu1[dfsimu2$DSS.time != dfsimu1$DSS.time,]$DSS.time
+
+
+```
+
+
+# Session Information
+
+```{r results="verbatim"}
+sessionInfo()
+date()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

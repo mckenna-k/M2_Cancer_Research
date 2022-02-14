@@ -1,4 +1,34 @@
 library(msm)
+df_msm_creation <- function(df_new){
+
+
+
+
+
+
+  indiv_msm <- c((1:nrow(df_new)),
+                 (1:nrow(df_new))[(df_new$T01.time < df_new$T02.time) & df_new$T01==1],
+                 (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==1],
+                 (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==0],
+                 (1:nrow(df_new))[df_new$T02 == 1],
+                 (1:nrow(df_new))[df_new$T02 == 0 & df_new$T01==0])
+  state_msm <- c(rep(1,nrow(df_new)),
+                 rep(2,sum((df_new$T01.time < df_new$T02.time) & df_new$T01==1)),
+                 rep(3,sum(df_new$T12.time > 0 & df_new$T12==1)),
+                 rep(2,sum(df_new$T12.time > 0 & df_new$T12==0)),
+                 rep(3,sum(df_new$T02 == 1)),
+                 rep(1,sum(df_new$T02 == 0 & df_new$T01==0)))
+  time_msm <- c(rep(0,nrow(df_new)),
+                df_new$T01.time[(df_new$T01.time < df_new$T02.time) & df_new$T01==1],
+                (df_new$T12.time + df_new$T01.time)[df_new$T12.time > 0 & df_new$T12==1],
+                (df_new$T12.time + df_new$T01.time)[df_new$T12.time > 0 & df_new$T12==0],
+                df_new$T02.time[df_new$T02 == 1],
+                df_new$T02.time[df_new$T02 == 0 & df_new$T01==0])
+  df_msm <- data.frame("indiv"=indiv_msm,"state"=state_msm,"time"=time_msm)
+  df_msm <- df_msm[order(df_msm$indiv,df_msm$time),]
+  rownames(df_msm) <- 1:nrow(df_msm)
+  return(df_msm)
+}
 
 process <- function(n, i01, i02, i12, i00=NULL, seed=1){
   set.seed(seed)
@@ -28,30 +58,8 @@ process <- function(n, i01, i02, i12, i00=NULL, seed=1){
   return(df)
 }
 
-df_msm_creation <- function(df_new){
-  indiv_msm <- c((1:nrow(df_new)),
-                 (1:nrow(df_new))[(df_new$T01.time < df_new$T02.time) & df_new$T01==1],
-                 (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==1],
-                 (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==0],
-                 (1:nrow(df_new))[df_new$T02 == 1],
-                 (1:nrow(df_new))[df_new$T02 == 0 & df_new$T01==0])
-  state_msm <- c(rep(1,nrow(df_new)),
-                 rep(2,sum((df_new$T01.time < df_new$T02.time) & df_new$T01==1)),
-                 rep(3,sum(df_new$T12.time > 0 & df_new$T12==1)),
-                 rep(2,sum(df_new$T12.time > 0 & df_new$T12==0)),
-                 rep(3,sum(df_new$T02 == 1)),
-                 rep(1,sum(df_new$T02 == 0 & df_new$T01==0)))
-  time_msm <- c(rep(0,nrow(df_new)),
-                df_new$T01.time[(df_new$T01.time < df_new$T02.time) & df_new$T01==1],
-                (df_new$T12.time + df_new$T01.time)[df_new$T12.time > 0 & df_new$T12==1],
-                (df_new$T12.time + df_new$T01.time)[df_new$T12.time > 0 & df_new$T12==0],
-                df_new$T02.time[df_new$T02 == 1],
-                df_new$T02.time[df_new$T02 == 0 & df_new$T01==0])
-  df_msm <- data.frame("indiv"=indiv_msm,"state"=state_msm,"time"=time_msm)
-  df_msm <- df_msm[order(df_msm$indiv,df_msm$time),]
-  rownames(df_msm) <- 1:nrow(df_msm)
-  return(df_msm)
-}
+
+
 
 n <- 1000
 Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
@@ -67,6 +75,7 @@ res12 <-rep(NA,3*length(val))
 covar <- sample(0:1,1000,replace=TRUE,prob=c(0.8,0.2))
 
 for(i in 1:length(val)){
+  print(i)
   df_new <- process(n=n,0.6,0.2,0.3,val[[i]],i)
   df_msm <- df_msm_creation(df_new)
   df_msm[["covar"]] <- covar[df_msm$indiv]

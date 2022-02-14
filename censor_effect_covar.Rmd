@@ -1,0 +1,276 @@
+---
+title: "Prétraitement des données de survie"
+author: "Shuyu, Marame, Kevin, Théo, Florence, Florent"
+date: "`r Sys.Date()`"
+output: 
+  rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=FALSE, results="hide")
+source("common.R")
+```
+
+# Simu
+
+```{r simu, echo=TRUE}
+# source("common.R")
+# data = openxlsx::read.xlsx("TCGA-CDR-SupplementalTableS1.xlsx", sheet = "TCGA-CDR", na.strings="#N/A")
+# df_new = dfnew_creation(data)
+#
+# generate_params_for_sim(kc="BRCA", df_new)
+
+
+Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
+censor_params = c(0.001, 0.01, 0.02, 0.03, seq(0.04, 4, length.out=100))
+
+
+set.seed(1)
+covar <- sample(0:1,1000,replace=TRUE,prob=c(0.8,0.2))
+
+
+results = sapply(censor_params, function(censor_param){
+  # censor_param = .4
+  print(censor_param)
+  seed = 1
+  n = 500
+  i01 = .6
+  i02 = .4 
+  i12 = .3   
+  dfsimu_hi = process(n, i01, i02, i12, censor_param=NULL, seed)
+  dfsimu_hi$stage = "III-IV"
+  
+  n = 500
+  i01 = .1 
+  i02 = .2 
+  i12 = .3   
+  dfsimu_lo = process(n, i01, i02, i12, censor_param=NULL, seed)
+  dfsimu_lo$stage = "I-II"
+    
+  dfsimu = rbind(dfsimu_lo, dfsimu_hi)
+  head(dfsimu)
+  tail(dfsimu)
+
+  dfsimu = add_censor(dfsimu, censor_param, seed)
+  dfsimu = dfsimu_creation_lastpart(dfsimu)
+  
+  df_new <- dfnew_creation(dfsimu)
+  head(df_new[,1:6])
+  head(dfsimu[,1:6])
+  df_new$stage = dfsimu$stage
+  dim(df_new)
+
+  dfmsm <- dfmsm_creation(df_new)
+  # dfmsm[["covar"]] <- covar[dfmsm$indiv]
+  dfmsm[["covar"]] <- dfsimu[dfmsm$indiv,]$stage
+  msm_simu <-     mmsm(state~time, subject=dfmsm[,1], data=dfmsm, gen.inits=TRUE, qmatrix=Qmat, deathexact=3, covariates=~covar)
+  
+  # crudeinits values
+  Q2 <- msm::crudeinits.msm(state~time, subject=indiv, data=dfmsm, qmatrix= Qmat)
+  q2i01 = Q2[1,2]
+  q2i02 = Q2[1,3]
+  q2i12 = Q2[2,3]
+  
+  hazards <- msm::hazard.msm(msm_simu)[[1]]
+  if(dim(hazards)[2] == 1){
+    hazards = cbind(hazards, L=NA, U=NA)
+  }
+  
+  # HR
+  hr01_l = hazards[1,"L"]
+  hr02_l = hazards[2,"L"]
+  hr12_l = hazards[3,"L"]
+  hr01_u = hazards[1,"U"]
+  hr02_u = hazards[2,"U"]
+  hr12_u = hazards[3,"U"]
+  hr01   = hazards[1,"HR"]
+  hr02   = hazards[2,"HR"]
+  hr12   = hazards[3,"HR"]
+  hr01   = hazards[1,"HR"]
+  hr02   = hazards[2,"HR"]
+  hr12   = hazards[3,"HR"]
+  
+  # Contingent
+  contingent01 = sum(df_new$T01==1)
+  contingent02 = sum(df_new$T02==1)
+  contingent12 = sum(df_new$T12==1)
+  
+  # ret = list(censor_param=censor_param, hazards=hazards, df_new=df_new)
+  nb_censored_PFI = sum(1-df_new$PFI)
+  nb_censored_DSS = sum(1-df_new$DSS)
+  ret = list(
+    hr01_l = hr01_l ,
+    hr02_l = hr02_l ,
+    hr12_l = hr12_l ,
+    hr01_u = hr01_u ,
+    hr02_u = hr02_u ,
+    hr12_u = hr12_u ,
+    hr01   = hr01   ,
+    hr02   = hr02   ,
+    hr12   = hr12   ,
+    hr01   = hr01   ,
+    hr02   = hr02   ,
+    hr12   = hr12   ,
+    q2i01 = q2i01   ,
+    q2i02 = q2i02   ,
+    q2i12 = q2i12   ,
+    contingent01 = contingent01 ,
+    contingent02 = contingent01 ,
+    contingent12 = contingent12 ,
+    nb_censored_PFI=nb_censored_PFI,
+    nb_censored_DSS=nb_censored_DSS,
+    n   = n   , 
+    i01 = i01 , 
+    i02 = i02 , 
+    i12 = i12 , 
+    censor_param=censor_param
+  )
+  return(ret)
+})
+
+results = data.frame(t(results))
+results = data.frame(lapply(data.frame(results, stringsAsFactors=FALSE), unlist), stringsAsFactors=FALSE)
+head(results)
+dim(results)
+
+
+r = results
+head(results)
+```
+
+
+# Results
+
+```{r results, results="verbatim"}
+layout(matrix(1:2,1), respect=TRUE)
+
+
+plot(0,0, col=0, xlim=range(r$censor_param), ylim=c(0, 1000), xlab="censor_param", ylab="#obs.")
+lines(r$censor_param, r$nb_censored_DSS, col=2)
+lines(r$censor_param, r$nb_censored_PFI, col=4)
+legend("bottomright", c("nb_censored_DSS", "nb_censored_PFI"), lty=1, col=c(2,4))
+
+
+plot(0,0, col=0, xlim=range(r$censor_param), ylim=c(0, 50), xlab="censor_param", ylab="#obs.")
+lines(r$censor_param, r$hr01_l , col=1, lty=2)
+lines(r$censor_param, r$hr02_l , col=2, lty=2)
+lines(r$censor_param, r$hr12_l , col=4, lty=2)
+lines(r$censor_param, r$hr01_u , col=1, lty=2)
+lines(r$censor_param, r$hr02_u , col=2, lty=2)
+lines(r$censor_param, r$hr12_u , col=3, lty=2)
+lines(r$censor_param, r$hr01   , col=adjustcolor(1, alpha.f=.6), lwd=3)
+lines(r$censor_param, r$hr02   , col=adjustcolor(2, alpha.f=.6), lwd=3)
+lines(r$censor_param, r$hr12   , col=adjustcolor(4, alpha.f=.6), lwd=3)
+abline(h=1, col=1)
+legend("topleft", c("HR01", "HR02", "HR12"), lty=1, col=c(1, 2,4))
+
+plot(0,0, col=0, xlim=range(r$censor_param), ylim=c(0, 1), xlab="censor_param", ylab="#obs.", main="Q2 crudeinits values")
+lines(r$censor_param, r$q2i01, col=adjustcolor(1, alpha.f=.6), lwd=3)
+lines(r$censor_param, r$q2i02, col=adjustcolor(2, alpha.f=.6), lwd=3)
+lines(r$censor_param, r$q2i12, col=adjustcolor(4, alpha.f=.6), lwd=3)
+abline(h=c(r[1,]$i01, r[1,]$i02, r[1,]$i12), lty=2, col=c(1, 2,4))
+legend("topleft", c("I01", "I02", "I12"), lty=1, col=c(1, 2,4))
+
+plot(0,0, col=0, xlim=range(r$censor_param), ylim=c(0, 10), xlab="censor_param", ylab="#obs.", main="Contingent ratio")
+lines(r$censor_param, r$contingent01 / r$contingent02, col=adjustcolor(1, alpha.f=.6), lwd=3)
+lines(r$censor_param, r$contingent02 / r$contingent12, col=adjustcolor(2, alpha.f=.6), lwd=3)
+lines(r$censor_param, r$contingent12 / r$contingent02, col=adjustcolor(4, alpha.f=.6), lwd=3)
+abline(h=c(98/33, 98/46, 46/33), lty=2, col=c(1, 2,4))
+legend("topleft", c("ctg01/ctg02", "ctg01/ctg12", "ctg12/ctg02"), lty=1, col=c(1, 2,4))
+
+
+
+
+# plot(val,  contingent01/contingent02,type="l",ylim=c(0,5))
+# points(val,contingent01/contingent12,type="l",col=2)
+# points(val,contingent12/contingent02,type="l",col=3)
+# abline(h=98/33,lty=2,col=1)
+# abline(h=98/46,lty=2,col=2)
+# abline(h=46/33,lty=2,col=3)
+# legend("bottomleft",legend=c("3","2.1","1.4"),lty=2,col=1:3)
+#
+
+
+```
+
+
+```{r eval=FALSE}
+
+x <- contingent01+contingent02
+mat_res01 <- matrix(res01,byrow = TRUE,ncol=3)[order(x),]
+mat_res02 <- matrix(res02,byrow = TRUE,ncol=3)[order(x),]
+mat_res12 <- matrix(res12,byrow = TRUE,ncol=3)[order(x),]
+x <- x[order(x)]
+
+
+layout(matrix(1:3,1), respect=TRUE)
+par(mfrow=c(1,3),mar=rep(2,4))
+plot(x,mat_res01[,1],type="l",ylim=c(0,10))
+points(x,mat_res01[,2],type="l",col=2,lty=2)
+points(x,mat_res01[,3],type="l",col=2,lty=2)
+abline(h=1,lty=2,col=3)
+
+plot(x,mat_res02[,1],type="l",ylim=c(0,10))
+points(x,mat_res02[,2],type="l",col=2,lty=2)
+points(x,mat_res02[,3],type="l",col=2,lty=2)
+abline(h=1,lty=2,col=3)
+
+plot(x,mat_res12[,1],type="l",ylim=c(0,10))
+points(x,mat_res12[,2],type="l",col=2,lty=2)
+points(x,mat_res12[,3],type="l",col=2,lty=2)
+abline(h=1,lty=2,col=3)
+
+plot(val,contingent01/contingent02,type="l",ylim=c(0,5))
+points(val,contingent01/contingent12,type="l",col=2)
+points(val,contingent12/contingent02,type="l",col=3)
+abline(h=98/33,lty=2,col=1)
+abline(h=98/46,lty=2,col=2)
+abline(h=46/33,lty=2,col=3)
+legend("bottomleft",legend=c("3","2.1","1.4"),lty=2,col=1:3)
+
+#pour BRCA T01 <- 98
+# T02 <- 33
+# T12 <- 46
+# T01 III- IV <- 42
+# T02 III- IV <- 16
+# T12 III- IV <- 25
+
+df_new <- process(n=n,0.6,0.2,0.3,6)
+sum(df_new$T01==1)
+sum(df_new$T02==1)
+sum(df_new$T12==1)
+
+# obs: diminuer le rapport l01/l02 augmente instabilité ?
+```
+
+
+
+
+# Session Information
+
+```{r results="verbatim"}
+sessionInfo()
+date()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
