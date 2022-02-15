@@ -44,14 +44,14 @@ process <- function(n, i01, i02, i12, censor_param=NULL, seed=1){
   }  else {
     set.seed(seed*2+1)
     tcensure <- rexp(n,censor_param) #temps de censure pour chaque individu
-    print(paste0("nb_censored_DSS", sum(t1+t2 > tcensure)))
-    print(paste0("nb_censored_PFI", sum(t1 > tcensure)))
+    print(paste0("nb_censored_DSS = ", sum(((t1+t2 > tcensure) & (s1==1)) | ((t1 > tcensure) & (s1==2)) )))
+    print(paste0("nb_censored_PFI = ", sum(t1 > tcensure)))
     tmin0102 = t1
     t1 <- apply(matrix(c(tcensure,tmin0102),byrow = FALSE,ncol=2),1,min) #min temps de passage de 0 à 1 et de 0 à 2 et du temps de censure
     s1 <- ifelse(tmin0102 < tcensure,s1,0) #détermination de l'état atteint (1 ou 2 ou censure)
     tmin12 <- t2
-    t2 <- apply(matrix(c(tmin12,tcensure-t1),byrow = FALSE,ncol=2),1,min) #min temps de passage de 1 à 2 et du temps de censure
-    s2 <- ifelse(tmin12 < tcensure,1,0) #détermination de la censure de la transition 1 -> 2
+    t2 <- apply(matrix(c(tcensure-t1,tmin12),byrow = FALSE,ncol=2),1,min) #min temps de passage de 1 à 2 et du temps de censure
+    s2 <- ifelse(tmin12 < tcensure-t1,1,0) #détermination de la censure de la transition 1 -> 2
     dfsimu <- data.frame("DSS"=ifelse(s1 == 2 | (s1 == 1 & s2 == 1),1,0),"DSS.time"=ifelse(s1==1,t1+t2,t1),
                      "PFI"=ifelse(s1 > 0,1,0),"PFI.time"=t1,
                      "T01"=ifelse(s1==1,1,0),"T01.time"=t1,
@@ -72,14 +72,14 @@ add_censor <- function(dfsimu, censor_param, seed=1){
   # lines(density(df$DSS.time), col=2)
   # lines(density(tcensure), col=4)
   
-  print(paste0("nb_censored_DSS", sum(dfsimu$DSS.time > tcensure)))
-  print(paste0("nb_censored_PFI", sum(dfsimu$PFI.time > tcensure)))
+  print(paste0("nb_censored_DSS = ", sum(dfsimu$DSS.time > tcensure)))
+  print(paste0("nb_censored_PFI = ", sum(dfsimu$PFI.time > tcensure)))
 
-  dfsimu$DSS      = ifelse(dfsimu$DSS.time > tcensure, 0       , 1)
-  dfsimu$DSS.time = ifelse(dfsimu$DSS.time > tcensure, tcensure, dfsimu$DSS.time)
-  dfsimu$PFI      = ifelse(dfsimu$PFI.time > tcensure, 0       , 1)
-  dfsimu$PFI.time = ifelse(dfsimu$PFI.time > tcensure, tcensure, dfsimu$PFI.time)
-
+  dfsimu$DSS      = ifelse(dfsimu$DSS.time >= tcensure, 0       , 1)
+  dfsimu$DSS.time = ifelse(dfsimu$DSS.time >= tcensure, tcensure, dfsimu$DSS.time)
+  dfsimu$PFI      = ifelse(dfsimu$PFI.time >= tcensure, 0       , 1)
+  dfsimu$PFI.time = ifelse(dfsimu$PFI.time >= tcensure, tcensure, dfsimu$PFI.time)
+  print(dfsimu$DSS)
   dfsimu$T01 = dfsimu$T01.time = dfsimu$T02 = dfsimu$T02.time = dfsimu$T12 = dfsimu$T12.time = NA
   return(dfsimu)
 }
