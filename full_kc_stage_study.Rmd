@@ -84,6 +84,15 @@ table(d$PFI)
 table(dsimu$PFI)
 table(d$DSS)
 table(dsimu$DSS)
+
+table(d$T01)
+table(dsimu$T01)
+table(d$T02)
+table(dsimu$T02)
+table(d$T12)
+table(dsimu$T12)
+
+
 table(d$stage)
 table(dsimu$stage)
 
