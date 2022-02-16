@@ -29,7 +29,12 @@ if (!exists("mmsm")) {mmsm = memoise::memoise(function(formula, subject, ...) ms
 #   return(dfsimu)
 # }
 
-
+# process(p[1], p[2], p[3], p[4])
+#
+# n  =p[1]
+# i01=p[2]
+# i02=p[3]
+# i12=p[4]
 process <- function(n, i01, i02, i12, censor_param=NULL, seed=1, version="T02timePFI"){
   set.seed(seed)
   t1 <- rexp(n,i01+i02) #temps de passage de 0 à 1 ou 0 à 2
@@ -366,9 +371,9 @@ get_intensity_from_data = function(d) {
   Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
   dfmsm = dfmsm_creation(d) 
   Q2 <- msm::crudeinits.msm(state~time, subject=indiv, data=dfmsm, qmatrix=Qmat)
-  i01 = Q2[1,2]
-  i02 = Q2[1,3]
-  i12 = Q2[2,3]
+  i01 = max(0.0000000001, Q2[1,2])
+  i02 = max(0.0000000001, Q2[1,3])
+  i12 = max(0.0000000001, Q2[2,3])
   return(c(
     i01=i01, 
     i02=i02, 
