@@ -371,9 +371,9 @@ get_intensity_from_data = function(d) {
   Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
   dfmsm = dfmsm_creation(d) 
   Q2 <- msm::crudeinits.msm(state~time, subject=indiv, data=dfmsm, qmatrix=Qmat)
-  i01 = max(0.0000000001, Q2[1,2])
-  i02 = max(0.0000000001, Q2[1,3])
-  i12 = max(0.0000000001, Q2[2,3])
+  i01 = max(0.00001, Q2[1,2])
+  i02 = max(0.00001, Q2[1,3])
+  i12 = max(0.00001, Q2[2,3])
   return(c(
     i01=i01, 
     i02=i02, 
