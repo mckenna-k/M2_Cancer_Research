@@ -30,16 +30,22 @@ if (!exists("mmsm")) {mmsm = memoise::memoise(function(formula, subject, ...) ms
 # }
 
 
-process <- function(n, i01, i02, i12, censor_param=NULL, seed=1){
+process <- function(n, i01, i02, i12, censor_param=NULL, seed=1, version="T02timePFI"){
   set.seed(seed)
   t1 <- rexp(n,i01+i02) #temps de passage de 0 à 1 ou 0 à 2
   s1 <- rbinom(n,1,i02/(i01+i02))+1 #détermination de l'état atteint (1 ou 2)
   t2 <- rexp(n,i12) #temps de passage de l'état 1 à 2 à partir du temps d'arrivée à 1
   if(is.null(censor_param)){
+    # which tiome for T02.time
+    if (version=="T02timeDSS") {
+      T02.time = ifelse(s1==2,t1,t1+t2)
+    } else {
+      T02.time = t1
+    }    
     dfsimu <- data.frame("DSS"=rep(1,n),"DSS.time"=ifelse(s1==1,t1+t2,t1),
                      "PFI"=rep(1,n),"PFI.time"=t1,
                      "T01"=-(s1-2),"T01.time"=t1,
-                     "T02"=s1-1,"T02.time"=ifelse(s1==2,t1,t1+t2),
+                     "T02"=s1-1,"T02.time"=T02.time,
                      "T12"=-(s1-2),"T12.time"=ifelse(s1==1,t2,0))
   }  else {
     set.seed(seed*2+1)
@@ -52,10 +58,15 @@ process <- function(n, i01, i02, i12, censor_param=NULL, seed=1){
     tmin12 <- t2
     t2 <- apply(matrix(c(tcensure-t1,tmin12),byrow = FALSE,ncol=2),1,min) #min temps de passage de 1 à 2 et du temps de censure
     s2 <- ifelse(tmin12 < tcensure-t1,1,0) #détermination de la censure de la transition 1 -> 2
+    if (version=="T02timeDSS") {
+      T02.time = ifelse(s1==2 | s1==0,t1,t1+t2)
+    } else {
+      T02.time = t1
+    }    
     dfsimu <- data.frame("DSS"=ifelse(s1 == 2 | (s1 == 1 & s2 == 1),1,0),"DSS.time"=ifelse(s1==1,t1+t2,t1),
                      "PFI"=ifelse(s1 > 0,1,0),"PFI.time"=t1,
                      "T01"=ifelse(s1==1,1,0),"T01.time"=t1,
-                     "T02"=ifelse(s1-1 > 0,1,0),"T02.time"=ifelse(s1==2 | s1==0,t1,t1+t2),
+                     "T02"=ifelse(s1-1 > 0,1,0),"T02.time"=T02.time,
                      "T12"=ifelse(s1==1 & s2==1,1,0),"T12.time"=ifelse(s1==1,t2,0))
   }
   return(dfsimu)
@@ -79,7 +90,7 @@ add_censor <- function(dfsimu, censor_param, seed=1){
   dfsimu$DSS.time = ifelse(dfsimu$DSS.time >= tcensure, tcensure, dfsimu$DSS.time)
   dfsimu$PFI      = ifelse(dfsimu$PFI.time >= tcensure, 0       , 1)
   dfsimu$PFI.time = ifelse(dfsimu$PFI.time >= tcensure, tcensure, dfsimu$PFI.time)
-  print(dfsimu$DSS)
+  # print(dfsimu$DSS)
   dfsimu$T01 = dfsimu$T01.time = dfsimu$T02 = dfsimu$T02.time = dfsimu$T12 = dfsimu$T12.time = NA
   return(dfsimu)
 }
@@ -124,7 +135,7 @@ dfsimu_creation_lastpart = function(dfsimu, type="SIMU1", stages=c("Stage IV", "
 
 
 
-dfnew_creation = function(data) {  
+dfnew_creation = function(data, version="T02timePFI") {  
   # verification des colonnes numerique depuis les facteurs.
   if (!is.numeric(data$DSS.time)) {stop("DSS.time is not numeric.")}
   if (!is.numeric(data$DSS     )) {stop("DSS      is not numeric.")}
@@ -143,7 +154,14 @@ dfnew_creation = function(data) {
   data$pfiNotDead.time <- data$PFI.time/365.25
   data$pfiNotDead <- data$PFI
   data$pfiNotDead[data$PFI.time==data$DSS.time] <- 0
-  data$dssDirect.time <- data$DSS.time/365.25
+
+  # which tiome for T02.time
+  if (version=="T02timeDSS") {
+    data$dssDirect.time <- data$DSS.time/365.25
+  } else {
+    data$dssDirect.time <- data$PFI.time/365.25    
+  }
+
   data$dssDirect <- data$DSS
   data$dssDirect[!data$PFI.time==data$DSS.time] <- 0
   data$dssRelapse.time <- (data$DSS.time-data$PFI.time)/365.25
@@ -298,20 +316,20 @@ dfmsm_creation = function(df_new) {
   #* Donc il y a 3 matrice qui sont cree chaqu'un avec 4 colonne: indiv, time, state et type
   #* Dans un boucle for du longeur du dataframe des patients (qu'on n'a pas retirer) pour chaque matrix, on regarde quel phase doit placer le patient
   #* et on lui donne le bonne 'state'.  Si le personne n'a pas de troisieme phase, on met NA, qu'on enlevera apres.  
-  indiv_msm <- c((1:nrow(df_new)),
-                 (1:nrow(df_new))[(df_new$T01.time < df_new$T02.time) & df_new$T01==1],
-                 (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==1],
-                 (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==0],
-                 (1:nrow(df_new))[df_new$T02 == 1],
-                 (1:nrow(df_new))[df_new$T02 == 0 & df_new$T01==0])
+  indiv_msm <- c((1:nrow(df_new)),                                                      # tous les indiv sont dans l'état 1 (état initial)
+                 (1:nrow(df_new))[df_new$T01==1],                                       # quelques indiv transit de 1 à 2
+                 (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==1],                 # quelques indiv transit de 2 à 3
+                 (1:nrow(df_new))[df_new$T12.time > 0 & df_new$T12==0],                 # quelques indiv sont censurés dans l' état 2
+                 (1:nrow(df_new))[df_new$T02 == 1],                                     # quelques indiv transit transit de 1 à 3
+                 (1:nrow(df_new))[df_new$T02 == 0 & df_new$T01==0])                     # quelques indiv sont censurés dans l'état 1
   state_msm <- c(rep(1,nrow(df_new)),
-                 rep(2,sum((df_new$T01.time < df_new$T02.time) & df_new$T01==1)),
+                 rep(2,sum(df_new$T01==1)),
                  rep(3,sum(df_new$T12.time > 0 & df_new$T12==1)),
                  rep(2,sum(df_new$T12.time > 0 & df_new$T12==0)),
                  rep(3,sum(df_new$T02 == 1)),
                  rep(1,sum(df_new$T02 == 0 & df_new$T01==0)))
   time_msm <- c(rep(0,nrow(df_new)),
-                df_new$T01.time[(df_new$T01.time < df_new$T02.time) & df_new$T01==1],
+                df_new$T01.time[df_new$T01==1],
                 (df_new$T12.time + df_new$T01.time)[df_new$T12.time > 0 & df_new$T12==1],
                 (df_new$T12.time + df_new$T01.time)[df_new$T12.time > 0 & df_new$T12==0],
                 df_new$T02.time[df_new$T02 == 1],
@@ -344,35 +362,179 @@ dfmsm_creation = function(df_new) {
 
 
 
-generate_params_for_sim = function(kc="BRCA", df_new) {
-  # kc = "BRCA"
+get_intensity_from_data = function(d) {
   Qmat <- matrix(c(1,1,1,0,1,1,0,0,0),ncol=3,byrow = TRUE)
-  dfmsm = dfmsm_creation(df_new)
-  dfmsm = dfmsm[dfmsm$type == kc,]
-  n = nrow(dfmsm)  
-  Q2 <- msm::crudeinits.msm(state~time, subject=indiv, data=dfmsm[dfmsm$type == kc,],qmatrix= Qmat)
+  dfmsm = dfmsm_creation(d) 
+  Q2 <- msm::crudeinits.msm(state~time, subject=indiv, data=dfmsm, qmatrix=Qmat)
   i01 = Q2[1,2]
   i02 = Q2[1,3]
   i12 = Q2[2,3]
-  d = df_new[df_new$type == kc,]
-  propcensor_param = 1 - sum(d$T01 + d$T02) / nrow(d)
-  propi11 = 1 - sum(d$T12) / sum(d$T01)
-  censor_param = propcensor_param * (i01 + i02) / (1 - propcensor_param)
-  i11 = propi11*i12 / (1-propi11)
-  # 1 / mean(d$PFI) - i01 -i02 # likelihodd based (Theo)
-   
-  # head(d)
-  # table(d$T01)
-  # table(d$T02)
-  # table(d$T12)
-  # censor_param = exp(-1)
-  # i11 = exp(-1)
-  return(c(n=n, i01=i01, i02=i02, i12=i12, censor_param=censor_param, i11=i11))  
+  return(c(
+    i01=i01, 
+    i02=i02, 
+    i12=i12
+  ))    
+}
+
+generate_params_for_sim = function(d, kc="BRCA") {
+  print(kc)
+  tmp_d = d[d$type%in%kc & d$stage%in%"I-II",]
+  retlo = get_intensity_from_data(tmp_d)
+  nlo=nrow(tmp_d)
+  names(retlo) = paste0(names(retlo), "lo")
+
+  tmp_d = d[d$type%in%kc & d$stage%in%"III-IV",]
+  rethi = get_intensity_from_data(tmp_d)
+  nhi=nrow(tmp_d)
+  names(rethi) = paste0(names(rethi), "hi")
+  
+  return(c(nlo=nlo, retlo, nhi=nhi, rethi))
+}
+
+
+mstate_call = function(d, cov_key="stage"){
+  d$covar <- d[[cov_key]]
+  tmat <- mstate::transMat(x = list(c(2, 3), c(3),c()), names = c("healthy", "ill", "dead"))
+  tmat
+  msebmt <- mstate::msprep(data=d, trans=tmat, time=c(NA, "T01.time", "DSS.time"), status=c(NA, "T01", "DSS"), keep="covar")
+  head(msebmt)
+  # msebmt[280:290,]
+
+
+  # WARNING!! WARNING!! WARNING!! WARNING!! 
+  msebmt$covar = d[msebmt$id,]$covar
+  # WARNING!! WARNING!! WARNING!! WARNING!! 
+
+
+  # msebmt[280:290,]
+  # stop("probleme")
+
+  covs <- c("covar")
+  msebmt <- mstate::expand.covs(msebmt, covs, longnames = FALSE)
+  head(msebmt)
+  msebmt[280:290,]
+  # msebmt[, c("Tstart", "Tstop", "time")] == msebmt[, c("Tstart","Tstop", "time")]
+  # msebmt[, c("Tstart", "Tstop", "time")] <- msebmt[, c("Tstart","Tstop", "time")]
+  library(survival)
+  c_stage <- survival::coxph(survival::Surv(Tstart, Tstop, status)~strata(trans)+covar.1+covar.2+covar.3, data=msebmt, method="breslow")
+  hr <- summary(c_stage)$conf.int[,-2]
+  colnames(hr) <- c("HR","L","U")
+  rownames(hr) <- c("mstate12", "mstate13", "mstate23")
+  hr
+  ret = list(hr=hr)
+  return(ret)
 }
 
 
 
+run_stage_all_models = function(d) {
+  
+  # cox dss
+  m = survival::coxph(dss~stage, d)
+  sm = summary(m)
+  pv_logrank = sm$sctest[3]
+  tm = survival::cox.zph(m)
+  tm = tm$table
+  pvhz = tm[dim(tm)[1], 3]
+  hr = sm$conf.int[1, 1]
+  hrlb = sm$conf.int[1, 3]
+  hrub = sm$conf.int[1, 4]
+  res = c(hr, hrlb, hrub)
+  names(res) = c("HR", "L", "U")
+  res_cox_dss = res
+
+  # cox pfi
+  m = survival::coxph(pfi~stage, d)
+  sm = summary(m)
+  pv_logrank = sm$sctest[3]
+  tm = survival::cox.zph(m)
+  tm = tm$table
+  pvhz = tm[dim(tm)[1], 3]
+  hr = sm$conf.int[1, 1]
+  hrlb = sm$conf.int[1, 3]
+  hrub = sm$conf.int[1, 4]
+  res = c(hr, hrlb, hrub)
+  names(res) = c("HR", "L", "U")
+  res_cox_pfi = res
+
+  # msm
+  Qmat = matrix(c(1,1,1,0,1,1,0,0,0), ncol=3, byrow=TRUE)
+  dfmsm = dfmsm_creation(d) 
+  msm_simu = mmsm(state~time, subject=dfmsm[,1], data=dfmsm, gen.inits=TRUE, qmatrix=Qmat, deathexact=3, covariates=~stage)
+  hazards = msm::hazard.msm(msm_simu)[[1]]
+  if(dim(hazards)[2] == 1){
+    hazards = cbind(hazards, L=NA, U=NA)
+  }
+  rownames(hazards) = c("msm12", "msm13", "msm23")
+  res_msm = hazards
+
+  #mstate  
+  res = mstate_call(d)
+  res_mstate = res$hr
+
+  ret = rbind(res_cox_dss, res_cox_pfi, res_msm, res_mstate)
+  ret = data.frame(rbind(res_cox_dss, res_cox_pfi, res_msm, res_mstate))
+  return(ret)
+}
 
 
 
+plot_carpet = function(d, main, ...) {
+  evs = sort(unique(round(d$DSS.time,5)))
+  evs = sort(unique(round(c(d$DSS.time, d$PFI.time),5)))
+  nb_events = length(evs)
+  ev = rep(0, nb_events)
+  names(ev) = paste0("ev", evs)
+  # set.seed(1)
+  # d = d[sample(1:nrow(d), 300), ]
+  # sum(d$T01)
+  # sum(d$T02)
+  # sum(d$T12)
 
+  carpet = sapply(1:nrow(d), function(i) {
+    print(i)
+    ev_new = ev
+    evtpfi_key = paste0("ev", round(d[i,]$PFI.time,5))
+    evtdss_key = paste0("ev", round(d[i,]$DSS.time,5))
+
+    ev_new[1:(which(names(ev_new)==evtpfi_key)-1)] = 1
+    # 0, rechute ou mort ou censure
+    if (d[i,]$T01) { # rechute
+      if (d[i,]$T02) stop("1")
+      ev_new[which(names(ev_new)==evtpfi_key):length(ev_new)] = 2
+      # mort ou censure
+      if (d[i,]$T12) { # mort
+        ev_new[which(names(ev_new)==evtdss_key):length(ev_new)] = 3
+      } else { # censure
+        ev_new[which(names(ev_new)==evtdss_key):length(ev_new)] = 4
+      }
+    } else if (d[i,]$T02) { # mort
+      if (d[i,]$T01) stop("2")  
+      if (evtpfi_key!=evtdss_key) stop("3")
+        ev_new[which(names(ev_new)==evtdss_key):length(ev_new)] = 3
+    } else { # censure
+      if (evtpfi_key!=evtdss_key) stop("4")
+      ev_new[which(names(ev_new)==evtpfi_key):length(ev_new)] = 4
+    }
+    ev_new
+  })
+  colnames(carpet) = rownames(d)
+  image(carpet, col=c("blue", "red", "black", "grey"), yaxt="n", xlab="events", main=main)
+  axis(2, ...)
+}
+
+
+
+plot_hrs = function(results, ...) {
+  par(mar=c(5.1, 10, 4.1, 2.1))
+  plot(0,0,col=0, ylim=c(-nrow(results), -1), yaxt="n", xlim=c(0,10),ylab="", xlab="HR", ...)
+  # min(results[,2][is.finite(results[,2])]), max(results[,3][is.finite(results[,3])])))
+  abline(v=1, lty=2, col="grey")
+  for (i in 1:nrow(results)) {
+    col = ifelse(any(!is.finite(unlist(results[i,1:3]))), 2, 1)
+    points(results[i,1], -i, pch=16, col=col)
+    arrows(results[i,2],-i,results[i,3],-i, col=col, length=0)
+  }
+  axis(2, -(1:nrow(results)), rownames(results), las=2)
+  par(mar=c(5.1, 4.1, 4.1, 2.1))  
+}
