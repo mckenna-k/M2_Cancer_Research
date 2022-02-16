@@ -21,7 +21,7 @@ echo 'rmarkdown::render("censor_effect.Rmd")' | Rscript -
 echo 'rmarkdown::render("censor_effect_covar.Rmd")' | Rscript -
 
 # all models on BRCA cancer
-echo 'rmarkdown::render("full_brca_stage_study.Rmd")' | Rscript -
+echo 'rmarkdown::render("full_kc_stage_study.Rmd")' | Rscript -
 
 
 ```
