@@ -1,0 +1,160 @@
+---
+title: "Etude compléte de l'influence du `stage` sur les données TCGA"
+author: "Shuyu, Marame, Kevin, Théo, Florence, Florent"
+date: "`r Sys.Date()`"
+output: 
+  rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=FALSE, results="hide")
+data = openxlsx::read.xlsx("TCGA-CDR-SupplementalTableS1.xlsx", sheet = "TCGA-CDR", na.strings="#N/A")
+```
+```{r eval=FALSE}
+d = dfnew_creation(data)
+kcs = rev(names(sort(table(d$type))))
+kcs = kcs[!kcs%in%c("LIHC", "TGCT", "ACC", "DLBC")]
+table(data$type)
+results_glo = lapply(sort(kcs), function(kc) {
+  print(kc)
+  rmarkdown::render("full_kc_stage_study.Rmd", output_file=paste0("full_", kc, "_stage_study.html"))
+  return(list(res=results_glo, p=p))
+})
+
+foo = do.call(rbind, lapply(results_glo, "[[", "res"))
+WriteXLS::WriteXLS(foo, "global_hrs.xlsx", row.names=TRUE, FreezeRow=1, FreezeCol=1)
+
+foo = data.frame(do.call(rbind, lapply(results_glo, "[[", "p")))
+rownames(foo) = kcs
+WriteXLS::WriteXLS(foo, "global_sim_params.xlsx", row.names=TRUE, FreezeRow=1, FreezeCol=1)
+```
+
+# Data
+
+```{r data kc}
+source("common.R")
+if (!exists("kc")) {kc = "BRCA"}
+# data = data[data$type%in%kc,]
+d = dfnew_creation(data)
+table(d$type, d$stage)
+
+d = d[d$type%in%kc,]
+d$dss = survival::Surv(d$DSS.time, d$DSS)
+d$pfi = survival::Surv(d$PFI.time, d$PFI)
+```
+
+
+
+```{r data simu}
+p = generate_params_for_sim(d, kc=kc)
+dfsimu_lo = do.call(process, as.list(as.vector(p[1:4]))) # <=> dfsimu_lo = process(p[1], p[2], p[3], p[4])
+dim(dfsimu_lo)
+dfsimu_lo$stage = "I-II"
+dfsimu_hi = do.call(process, as.list(as.vector(p[5:8])))
+dim(dfsimu_hi)
+dfsimu_hi$stage = "III-IV"
+dfsimu = rbind(dfsimu_lo, dfsimu_hi)
+table(dfsimu$stage)
+table(d$stage)
+head(dfsimu)
+tail(dfsimu)
+
+censor_param = .25
+dfsimu = add_censor(dfsimu, censor_param)
+table(dfsimu$stage)
+dfsimu = dfsimu_creation_lastpart(dfsimu)
+table(dfsimu$stage)
+dfsimu$type=paste0(kc, "_simu")
+table(dfsimu$stage)
+
+dsimu = dfnew_creation(dfsimu)
+dsimu$stage = dfsimu[rownames(dsimu),]$stage
+table(dsimu$stage)
+dsimu$dss = survival::Surv(dsimu$DSS.time, dsimu$DSS)
+dsimu$pfi = survival::Surv(dsimu$PFI.time, dsimu$PFI)
+```
+
+
+```{r echo=TRUE, results="verbatim"}
+table(d$PFI)
+table(dsimu$PFI)
+table(d$DSS)
+table(dsimu$DSS)
+table(d$stage)
+table(dsimu$stage)
+
+```
+
+```{r plot carpets, eval=FALSE}
+layout(matrix(1:2,1), respect=TRUE)
+plot_carpet(d[order(d$DSS, d$PFI, d$PFI.time),], main=paste0("#DSS=", sum(d$DSS), ", #PFI=", sum(d$PFI), ""), at=c(0,1), c(0, nrow(d)))
+plot_carpet(d[order(d$PFI, d$PFI.time),], main=paste0("#DSS=", sum(d$DSS), ", #PFI=", sum(d$PFI), ""), at=c(0,1), c(0, nrow(d)))
+
+layout(matrix(1:2,1), respect=TRUE)
+plot_carpet(d[order(d$stage, d$DSS, d$PFI, d$PFI.time),], main=paste0("#DSS=", sum(d$DSS), ", #PFI=", sum(d$PFI), ""), at=c(0,sum(d$stage=="I-II")/nrow(d)/2, sum(d$stage=="I-II")/nrow(d), (sum(d$stage=="I-II") + 0.5*sum(d$stage!="I-II"))/nrow(d), 1), c(0, "stage I-II", sum(d$stage=="I-II") , "stage III-IV", nrow(d)))
+plot_carpet(d[order(d$stage, d$PFI, d$PFI.time),], main=paste0("#DSS=", sum(d$DSS), ", #PFI=", sum(d$PFI), ""), at=c(0,sum(d$stage=="I-II")/nrow(d)/2, sum(d$stage=="I-II")/nrow(d), (sum(d$stage=="I-II") + 0.5*sum(d$stage!="I-II"))/nrow(d), 1), c(0, "stage I-II", sum(d$stage=="I-II") , "stage III-IV", nrow(d)))
+```
+
+
+# Modèles 
+
+- cox    `dss~stage`     sur les données `r kc`
+- cox    `pfi~stage`     sur les données `r kc`
+- msm    `DSS/PFI~stage` sur les données `r kc`
+- mstate `DSS/PFI~stage` sur les données `r kc`
+
+
+
+- cox    `dss~stage`     sur les données simulée à partir de `r kc`
+- cox    `pfi~stage`     sur les données simulée à partir de `r kc`
+- msm    `DSS/PFI~stage` sur les données simulée à partir de `r kc`
+- mstate `DSS/PFI~stage` sur les données simulée à partir de `r kc`
+
+
+```{r simu, echo=FALSE}
+# Mise en oeuvre
+results      = run_stage_all_models(d)
+results_simu = run_stage_all_models(dsimu)
+```
+
+
+# Comparaison
+
+```{r results, results="verbatim"}
+layout(matrix(1:2,1), respect=TRUE)
+results$type=kc
+plot_hrs(results, main=results$type[1])
+results_simu$type=paste0(kc, "_simu")
+plot_hrs(results_simu, main=results_simu$type[1])
+
+results_glo = rbind(results, results_simu)
+```
+
+# Session Information
+
+```{r results="verbatim"}
+sessionInfo()
+date()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
