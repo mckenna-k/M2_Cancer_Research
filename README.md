@@ -11,7 +11,7 @@ Il ne doit pas y avoir d'erreur.
 # test
 echo 'rmarkdown::render("stress_test.Rmd")' | Rscript -
 
-# screen censor_param
+# launch msm and mstate models
 echo 'rmarkdown::render("data_msm_updated.Rmd")' | Rscript -
 
 # screen censor_param
