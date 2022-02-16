@@ -1,0 +1,66 @@
+---
+title: "Etude compléte de l'influence du `stage` sur les données TCGA"
+author: "Shuyu, Marame, Kevin, Théo, Florence, Florent"
+date: "`r Sys.Date()`"
+output: 
+  rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=FALSE, results="hide")
+source("common.R")
+data = openxlsx::read.xlsx("TCGA-CDR-SupplementalTableS1.xlsx", sheet = "TCGA-CDR", na.strings="#N/A")
+```
+
+
+```{r eval=TRUE}
+# d = dfnew_creation(data)
+# kcs = rev(names(sort(table(d$type))))
+# kcs = kcs[!kcs%in%c("LIHC", "TGCT", "ACC", "DLBC")]
+# table(data$type)
+# results_glo = lapply(sort(kcs), function(kc) {
+#   print(kc)
+#   rmarkdown::render("full_kc_stage_study.Rmd", output_file=paste0("full_", kc, "_stage_study.html"))
+#   return(list(res=results_glo, p=p))
+# })
+
+foo = do.call(rbind, lapply(results_glo, "[[", "res"))
+
+layout(matrix(1:2,1), respect=TRUE)
+for (kc in kcs) {
+  results = foo[foo$type==kc, ]
+  plot_hrs(results, main=results$type[1])
+  results_simu = foo[foo$type==paste0(kc, "_simu"), ]
+  plot_hrs(results_simu, main=results_simu$type[1])  
+}
+```
+
+
+# Session Information
+
+```{r results="verbatim"}
+sessionInfo()
+date()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

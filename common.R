@@ -52,7 +52,7 @@ process <- function(n, i01, i02, i12, censor_param=NULL, seed=1, version="T02tim
                      "T01"=-(s1-2),"T01.time"=t1,
                      "T02"=s1-1,"T02.time"=T02.time,
                      "T12"=-(s1-2),"T12.time"=ifelse(s1==1,t2,0))
-  }  else {
+  }  else {  
     set.seed(seed*2+1)
     tcensure <- rexp(n,censor_param) #temps de censure pour chaque individu
     print(paste0("nb_censored_DSS = ", sum(((t1+t2 > tcensure) & (s1==1)) | ((t1 > tcensure) & (s1==2)) )))
@@ -393,7 +393,15 @@ generate_params_for_sim = function(d, kc="BRCA") {
   nhi=nrow(tmp_d)
   names(rethi) = paste0(names(rethi), "hi")
   
-  return(c(nlo=nlo, retlo, nhi=nhi, rethi))
+  # tcensure < t1 / n = param obtenue a partir des données réelles (la proportion de données PFI censurée)
+  # t1 censuré ~ rexp(i01+i02+i00)
+  # max vraisemblance de t1 censuré ==> 1/(i01+i02+i00)
+  # = mean(PFI.time)
+  # i01+i02+i00 = 1/mean(PFI.time)
+  # i00 = 1/mean(d$PFI.time) - (i01+i02)
+  censor_param = 1/mean(d$PFI.time) - sum(get_intensity_from_data(d)[1:2])
+  
+  return(c(nlo=nlo, retlo, nhi=nhi, rethi, censor_param=censor_param))
 }
 
 

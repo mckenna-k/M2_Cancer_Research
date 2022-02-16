@@ -12,6 +12,7 @@ output:
   
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=FALSE, results="hide")
+source("common.R")
 data = openxlsx::read.xlsx("TCGA-CDR-SupplementalTableS1.xlsx", sheet = "TCGA-CDR", na.strings="#N/A")
 ```
 ```{r eval=FALSE}
@@ -36,7 +37,6 @@ WriteXLS::WriteXLS(foo, "global_sim_params.xlsx", row.names=TRUE, FreezeRow=1, F
 # Data
 
 ```{r data kc}
-source("common.R")
 if (!exists("kc")) {kc = "BRCA"}
 # data = data[data$type%in%kc,]
 d = dfnew_creation(data)
@@ -63,7 +63,7 @@ table(d$stage)
 head(dfsimu)
 tail(dfsimu)
 
-censor_param = .25
+censor_param = p[9]
 dfsimu = add_censor(dfsimu, censor_param)
 table(dfsimu$stage)
 dfsimu = dfsimu_creation_lastpart(dfsimu)
