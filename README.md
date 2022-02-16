@@ -1,17 +1,27 @@
 # M2_Cancer_Research
 
+## Les vignettes test 
+
+Lancer en bash les commandes suivantes
+avant de faire un push sur le git.
+
+Il ne doit pas y avoir d'erreur.
 
 ```
 # test
-rmarkdown::render("stress_test.Rmd")
+echo 'rmarkdown::render("stress_test.Rmd")' | Rscript -
+
 # screen censor_param
-rmarkdown::render("censor_effect.Rmd")
+echo 'rmarkdown::render("data_msm_updated.Rmd")' | Rscript -
+
 # screen censor_param
-rmarkdown::render("data_msm_updated.Rmd")
+echo 'rmarkdown::render("censor_effect.Rmd")' | Rscript -
+
 # adding significant covariate
-rmarkdown::render("censor_effect_covar.Rmd")
+echo 'rmarkdown::render("censor_effect_covar.Rmd")' | Rscript -
+
 # all models on BRCA cancer
-rmarkdown::render("full_brca_stage_study.Rmd")
+echo 'rmarkdown::render("full_brca_stage_study.Rmd")' | Rscript -
 
 
 ```
