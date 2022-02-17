@@ -20,7 +20,7 @@ d = dfnew_creation(data)
 kcs = rev(names(sort(table(d$type))))
 kcs = kcs[!kcs%in%c("LIHC", "TGCT", "ACC", "DLBC")]
 table(data$type)
-results_glo = lapply(sort(kcs), function(kc) {
+results_glo = lapply(kcs, function(kc) {
   print(kc)
   rmarkdown::render("full_kc_stage_study.Rmd", output_file=paste0("full_", kc, "_stage_study.html"))
   return(list(res=results_glo, p=p))
