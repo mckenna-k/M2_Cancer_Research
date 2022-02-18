@@ -1,0 +1,441 @@
+---
+title: "sensitivity analysis on models"
+author: "Shuyu, Marame, Kevin, Théo, Florence, Florent"
+date: "`r Sys.Date()`"
+output: 
+  rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=FALSE, results="hide")
+source("common.R")
+if (! exists("mrun_stage_all_models")) {mrun_stage_all_models = memoise::memoise(run_stage_all_models)}
+# apply_func = function(...){epimedtools::monitored_apply(mod=1, ...)}
+if (! exists("apply_func")) {apply_func = apply}
+
+```
+
+# Simualtion params 
+
+We generate simulation parameters from `r kc` dataset.
+
+We compare obtained indicators between `r kc` and simulates dataset.
+
+In both cases we see that HR associated with msm13 transition is not stable.
+
+```{r data kc, echo=TRUE, results="verbatim"}
+if (!exists("kc")) {kc = "BRCA"}
+# data = data[data$type%in%kc,]
+data = openxlsx::read.xlsx("TCGA-CDR-SupplementalTableS1.xlsx", sheet = "TCGA-CDR", na.strings="#N/A")
+d = dfnew_creation(data)
+# table(d$type, d$stage)
+d = d[d$type%in%kc,]
+d$dss = survival::Surv(d$DSS.time, d$DSS)
+d$pfi = survival::Surv(d$PFI.time, d$PFI)
+
+p = generate_params_for_sim(d, kc=kc)
+p = p_orig = signif(p,2)
+print(p)
+dfsimu = dfsimu_creation_3times(p)
+dsimu = dfnew_creation(dfsimu)
+dsimu$stage = dfsimu[rownames(dsimu),]$stage
+table(dsimu$stage)
+dsimu$dss = survival::Surv(dsimu$DSS.time, dsimu$DSS)
+dsimu$pfi = survival::Surv(dsimu$PFI.time, dsimu$PFI)
+
+results      = mrun_stage_all_models(d)
+results_simu = mrun_stage_all_models(dsimu)
+
+layout(matrix(1:2,1), respect=TRUE)
+results$type=kc
+plot_hrs(results, main=results$type[1])
+results_simu$type=paste0(kc, "_simu")
+plot_hrs(results_simu, main=results_simu$type[1])
+
+p = p_orig = signif(p,1)
+```
+
+# Screen 1: `censor_param`
+
+We see that the HRs are globally stretched with `censor_param`
+
+But the HR associated with msm13 transition stays independently unstable.
+
+
+```{r screen1, results="verbatim", echo=TRUE}
+layout(matrix(1:6,2), respect=TRUE)
+
+for (censor_param in seq(0.02, 0.22, by=0.04)) {
+  p[9] = censor_param
+
+  dfsimu = dfsimu_creation_3times(p)
+  d = dfnew_creation(dfsimu)
+  d$stage = dfsimu[rownames(d),]$stage
+  table(d$stage)
+  d$dss = survival::Surv(d$DSS.time, d$DSS)
+  d$pfi = survival::Surv(d$PFI.time, d$PFI)
+
+  results = mrun_stage_all_models(d)
+
+  print("T01")
+  print(table(d$T01))
+  print("T02")
+  print(table(d$T02))
+  print("T12")
+  print(table(d$T12))
+  plot_hrs(results, main=paste0("censor_param: ", censor_param))  
+}
+```
+
+# Screen 2: size of each group
+
+We see that the accuracy of the HR is not symmetrically affected by the proportion of the stage.
+
+```{r screen2, results="verbatim", echo=TRUE}
+layout(matrix(1:6,2), respect=TRUE)
+for (prop in seq(0.1, 0.9, by=0.16)) {
+  p[9] = 0.06
+  p[1] = 1000 * prop
+  p[5] = 1000 * (1-prop)
+
+  dfsimu = dfsimu_creation_3times(p)
+  d = dfnew_creation(dfsimu)
+  d$stage = dfsimu[rownames(d),]$stage
+  table(d$stage)
+  d$dss = survival::Surv(d$DSS.time, d$DSS)
+  d$pfi = survival::Surv(d$PFI.time, d$PFI)
+
+  results = mrun_stage_all_models(d)
+
+  plot_hrs(results, main=paste0(p[1],"/", p[5]))  
+}
+```
+
+# Screen 3: transitions
+
+
+```{r screen3, results="verbatim", echo=TRUE}
+p = p_orig 
+p[2:4]
+p[6:8]
+layout(matrix(1:6,2), respect=TRUE)
+
+i02s = c(.01,.03,.05)
+
+p = p_orig 
+params = expand.grid(
+  nlo          = 500 ,
+  i01lo        = p[2],
+  i02lo        = i02s,
+  i12lo        = p[4],
+  nhi          = 500 ,
+  i01hi        = p[6],
+  i02hi        = i02s,
+  i12hi        = p[8],
+  censor_param = 0.06,
+  seed = 1:3
+)
+
+
+stats = apply_func(params, 1, function(p){
+  # p = params[4,]
+  dfsimu = dfsimu_creation_3times(p=unlist((p[1:9])), seed=p[[10]])
+  d = dfnew_creation(dfsimu)
+  d$stage = dfsimu[rownames(d),]$stage
+  table(d$stage)
+  results = mrun_stage_all_models(d)
+  # plot_hrs(results, main=paste0(p, collapse=" "))
+  ret = c(p, msm13=results["msm13",3] - results["msm13",2])
+})
+stats = data.frame(t(stats))
+stats[!is.finite(stats$msm13),]$msm13 = max(stats[is.finite(stats$msm13),]$msm13)
+
+layout(matrix(1:2,1), respect=TRUE)
+boxplot(msm13~i02lo+i02hi, stats, las=2)
+max_msm13 = 20
+stats[stats$msm13>max_msm13,]$msm13 = max_msm13
+boxplot(msm13~i02lo+i02hi, stats, las=2)
+
+i02los        = c(.03, .05)
+i02his        = c(.03, .05)
+
+```
+
+
+
+
+```{r screen4, results="verbatim", echo=TRUE}
+p = p_orig 
+p[2:4]
+p[6:8]
+i01s = c(.02,.03, .04, .06)
+params = expand.grid(
+  nlo          = 500 ,
+  i01lo        = i01s,
+  i02lo        = .03,
+  i12lo        = p[4],
+  nhi          = 500 ,
+  i01hi        = i01s,
+  i02hi        = .05,
+  i12hi        = p[8],
+  censor_param = 0.06,
+  seed = 1:3
+)
+
+stats = apply_func(params, 1, function(p){
+  # p = params[4,]
+  # p = params[1,]
+  dfsimu = dfsimu_creation_3times(p=unlist((p[1:9])), seed=p[[10]])
+  d = dfnew_creation(dfsimu)
+  d$stage = dfsimu[rownames(d),]$stage
+  table(d$stage)
+  results = mrun_stage_all_models(d)
+  # plot_hrs(results, main=paste0(p, collapse=" "))s
+  ret = c(p, msm13=results["msm13",3] - results["msm13",2])
+})
+stats = data.frame(t(stats))
+if (any(!is.finite(stats$msm13))) {stats[!is.finite(stats$msm13),]$msm13 = max(stats[is.finite(stats$msm13),]$msm13)}
+
+layout(matrix(1:2,1), respect=TRUE)
+boxplot(msm13~i01lo+i01hi, stats, las=2)
+max_msm13 = 20
+stats[stats$msm13>max_msm13,]$msm13 = max_msm13
+boxplot(msm13~i01lo+i01hi, stats, las=2)
+
+i01los        = c(.02, .025)
+i01his        = c(.02,.04,.06)
+```
+
+
+```{r screen5, results="verbatim", echo=TRUE}
+p = p_orig 
+p[2:4]
+p[6:8]
+i12s = c(.2,.3,.4)
+params = expand.grid(
+  nlo          = 500 ,
+  i01lo        = .02,
+  i02lo        = .03,
+  i12lo        = i12s,
+  nhi          = 500 ,
+  i01hi        = .06,
+  i02hi        = .05,
+  i12hi        = i12s,
+  censor_param = 0.06,
+  seed = 1:3
+)
+
+stats = apply_func(params, 1, function(p){
+  # p = params[4,]
+  # p = params[1,]
+  dfsimu = dfsimu_creation_3times(p=unlist((p[1:9])), seed=p[[10]])
+  d = dfnew_creation(dfsimu)
+  d$stage = dfsimu[rownames(d),]$stage
+  table(d$stage)
+  results = mrun_stage_all_models(d)
+  # plot_hrs(results, main=paste0(p, collapse=" "))s
+  ret = c(p, msm13=results["msm13",3] - results["msm13",2])
+})
+stats = data.frame(t(stats))
+if (any(!is.finite(stats$msm13))) {stats[!is.finite(stats$msm13),]$msm13 = max(stats[is.finite(stats$msm13),]$msm13)}
+
+layout(matrix(1:2,1), respect=TRUE)
+boxplot(msm13~i12lo+i12hi, stats, las=2)
+max_msm13 = 20
+if (stats$msm13>max_msm13) {
+  stats[stats$msm13>max_msm13,]$msm13 = max_msm13
+  boxplot(msm13~i12lo+i12hi, stats, las=2)
+}
+
+i12los        = c(.2,.3)
+i12his        = c(.2,.3)
+```
+
+
+
+```{r screen6, results="verbatim", echo=TRUE}
+p = p_orig 
+p[2:4]
+p[6:8]
+params = expand.grid(
+  nlo          = 500 ,
+  i01lo        = i01los,
+  i02lo        = i02los,
+  i12lo        = i12los,
+  nhi          = 500 ,
+  i01hi        = i01his,
+  i02hi        = i02his,
+  i12hi        = i12his,
+  censor_param = 0.06,
+  seed = 1:3
+)
+
+
+
+i01los
+i02los
+i12los
+i01his
+i02his
+i12his
+
+
+stats = apply_func(params, 1, function(p){
+  # p = params[4,]
+  # p = params[1,]
+  dfsimu = dfsimu_creation_3times(p=unlist((p[1:9])), seed=p[[10]])
+  d = dfnew_creation(dfsimu)
+  d$stage = dfsimu[rownames(d),]$stage
+  table(d$stage)
+  results = mrun_stage_all_models(d)
+  # plot_hrs(results, main=paste0(p, collapse=" "))s
+  hrs = results[,1]
+  dhrs = results[,3] - results[,2]
+  names(hrs) = paste0("hr_", rownames(results))
+  names(dhrs) = paste0("dhr_", rownames(results))
+  hrs 
+  ret = c(p, hrs, dhrs)
+  ret
+})
+stats = data.frame(t(stats))
+max_score = 20
+
+for (key_score in colnames(stats)[19:26]) {
+  f = formula(paste0(key_score, "~i01lo+i01hi+i02lo+i02hi+i12lo+i12hi"))  
+  layout(matrix(1:2,1), respect=TRUE)
+  if (any(!is.finite(stats[[key_score]]))) {stats[!is.finite(stats[[key_score]]),key_score] = max(stats[is.finite(stats[[key_score]]),key_score])}
+  boxplot(f, stats, las=2, main=key_score)
+  if (any(stats[[key_score]]>max_score)) stats[stats[[key_score]]>max_score,key_score] = max_score
+  boxplot(f, stats, las=2, main=key_score)
+}
+```
+
+# Correlations
+
+```{r pairs, fig.height=9}
+pairs(stats[,19:26])
+pairs(stats[,11:18])
+```
+
+# PCA
+
+
+```{r pca, eval=TRUE, message=FALSE, warning=FALSE, results="verbatim"}
+# head(stats)
+# mat = stats[,-c(1, 2, 5, 9, 10, 11:18, 19:26)]
+mat0 = stats[,c(2, 3, 4, 6:8, 22)]
+mat1 = stats[,c(2, 3, 4, 6:8, 11, 12)]
+mat2 = stats[,c(2, 3, 4, 6:8, 13, 14, 15)]
+mat3 = stats[,c(2, 3, 4, 6:8, 16, 17, 18)]
+for (mat in list(mat0, mat1, mat2, mat3)) {
+  head(mat)
+  pca = prcomp(mat, scale=TRUE)
+  v = pca$sdev * pca$sdev
+  p = v / sum(v) * 100
+
+  layout(matrix(1:6,2), respect=TRUE)
+  # layout(matrix(1:2,1), respect=TRUE)
+  barplot(p)
+  for (i in 1:5) {
+    j = i+1
+    plot(pca$x[,i], pca$x[,j], xlab=paste0("PC", i, "(", signif(p[i], 3), "%)"), ylab=paste0("PC", j, "(", signif(p[j], 3), "%)"), pch=16)  
+    scale_factor = min(abs(c(min(c(pca$x[,i], pca$x[,j])), max(c(pca$x[,i], pca$x[,j])))))  
+    # scale_factor = min(abs(c(max(min(pca$x[,i]), min(pca$x[,j])), min(max(pca$x[,i]), max(pca$x[,j])))))
+    arrows(0,0,pca$rotation[,i]*scale_factor, pca$rotation[,j]*scale_factor, col="grey")
+    text(pca$rotation[,i]*scale_factor, pca$rotation[,j]*scale_factor, rownames(pca$rotation), col=2)
+  }  
+}
+```
+
+```{r}
+i01los
+i02los
+i12los
+i01his
+i02his
+i12his
+
+p = c(
+  nlo          = 500 ,
+  i01lo        = min(i01los),
+  i02lo        = max(i02los),
+  i12lo        = max(i12los),
+  nhi          = 500,
+  i01hi        = max(i01his),
+  i02hi        = min(i02his),
+  i12hi        = min(i12his),
+  censor_param = 0.06
+)
+
+
+p = c(
+  nlo          = 500 ,
+  i01lo        = min(i01los),
+  i02lo        = min(i02los),
+  i12lo        = min(i12los),
+  nhi          = 500,
+  i01hi        = max(i01his),
+  i02hi        = min(i02his),
+  i12hi        = min(i12his),
+  censor_param = 0.06
+)
+
+
+p = c(
+  nlo          = 500 ,
+  i01lo        = min(i01los),
+  i02lo        = min(i02los),
+  i12lo        = min(i12los),
+  nhi          = 500,
+  i01hi        = min(i01his),
+  i02hi        = max(i02his),
+  i12hi        = min(i12his),
+  censor_param = 0.06
+)
+
+
+dfsimu = dfsimu_creation_3times(p)
+dsimu = dfnew_creation(dfsimu)
+dsimu$stage = dfsimu[rownames(dsimu),]$stage
+table(dsimu$stage)
+dsimu$dss = survival::Surv(dsimu$DSS.time, dsimu$DSS)
+dsimu$pfi = survival::Surv(dsimu$PFI.time, dsimu$PFI)
+
+results = mrun_stage_all_models(dsimu)
+
+layout(matrix(1:2,1), respect=TRUE)
+plot_hrs(results, main=paste0(p, collapse=" "))
+
+
+
+```
+
+
+# Session Information
+
+```{r results="verbatim"}
+sessionInfo()
+date()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

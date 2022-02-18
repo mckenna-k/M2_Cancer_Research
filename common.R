@@ -88,8 +88,8 @@ add_censor <- function(dfsimu, censor_param, seed=1){
   # lines(density(df$DSS.time), col=2)
   # lines(density(tcensure), col=4)
   
-  print(paste0("nb_censored_DSS = ", sum(dfsimu$DSS.time > tcensure)))
-  print(paste0("nb_censored_PFI = ", sum(dfsimu$PFI.time > tcensure)))
+  # print(paste0("nb_censored_DSS = ", sum(dfsimu$DSS.time > tcensure)))
+  # print(paste0("nb_censored_PFI = ", sum(dfsimu$PFI.time > tcensure)))
 
   dfsimu$DSS      = ifelse(dfsimu$DSS.time >= tcensure, 0       , 1)
   dfsimu$DSS.time = ifelse(dfsimu$DSS.time >= tcensure, tcensure, dfsimu$DSS.time)
@@ -102,6 +102,18 @@ add_censor <- function(dfsimu, censor_param, seed=1){
 
 
 
+
+
+dfsimu_creation_3times = function(p, seed=1, ...) {
+  dfsimu_lo = do.call(process, as.list(as.vector(p[1:4]))) # <=> dfsimu_lo = process(p[1], p[2], p[3], p[4])
+  dfsimu_lo$stage = "I-II"
+  dfsimu_hi = do.call(process, as.list(as.vector(p[5:8])))
+  dfsimu_hi$stage = "III-IV"
+  dfsimu = rbind(dfsimu_lo, dfsimu_hi)
+  censor_param = p[9]
+  dfsimu = add_censor(dfsimu, censor_param, seed)
+  dfsimu_creation_lastpart(dfsimu, ...)
+}
 
 dfsimu_creation_2times = function(n=1000, i01=0.3, i02=0.3, i12=0.3, censor_param=0.3, seed=1, ...) {
   # n=1000; i01=0.3; i02=0.3; i12=0.3; censor_param=0.3 
@@ -309,6 +321,8 @@ dfnew_creation = function(data, version="T02timePFI") {
   df_new$age        = as.character(df_new$age      )
   df_new$var_nulle  = as.character(df_new$var_nulle)
   df_new$gender     = as.character(df_new$gender   )
+  df_new$dss = survival::Surv(df_new$DSS.time, df_new$DSS)
+  df_new$pfi = survival::Surv(df_new$PFI.time, df_new$PFI)
   return(df_new)
 }
 
@@ -539,7 +553,7 @@ plot_carpet = function(d, main, ...) {
 
 
 plot_hrs = function(results, ...) {
-  par(mar=c(5.1, 10, 4.1, 2.1))
+  par(mar=c(5.1, 6, 4.1, 2.1))
   plot(0,0,col=0, ylim=c(-nrow(results), -1), yaxt="n", xlim=c(0,10),ylab="", xlab="HR", ...)
   # min(results[,2][is.finite(results[,2])]), max(results[,3][is.finite(results[,3])])))
   abline(v=1, lty=2, col="grey")

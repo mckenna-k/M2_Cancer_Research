@@ -10,23 +10,30 @@ output:
     number_sections: true
 ---
   
-```{r setup, include=FALSE}
+```{r setup1, include=FALSE}
 knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=FALSE, results="hide")
 source("common.R")
 data = openxlsx::read.xlsx("TCGA-CDR-SupplementalTableS1.xlsx", sheet = "TCGA-CDR", na.strings="#N/A")
 ```
 
 
-```{r eval=TRUE}
-# d = dfnew_creation(data)
-# kcs = rev(names(sort(table(d$type))))
-# kcs = kcs[!kcs%in%c("LIHC", "TGCT", "ACC", "DLBC")]
-# table(data$type)
-# results_glo = lapply(sort(kcs), function(kc) {
-#   print(kc)
-#   rmarkdown::render("full_kc_stage_study.Rmd", output_file=paste0("full_", kc, "_stage_study.html"))
-#   return(list(res=results_glo, p=p))
-# })
+```{r synthesis, eval=TRUE}
+d = dfnew_creation(data)
+kcs = rev(names(sort(table(d$type))))
+kcs = kcs[!kcs%in%c("LIHC", "TGCT", "ACC", "DLBC")]
+table(data$type)
+results_glo = lapply(kcs, function(kc) {
+  print(kc)
+  rmarkdown::render("full_kc_stage_study.Rmd", output_file=paste0("full_", kc, "_stage_study.html"))
+  return(list(res=results_glo, p=p))
+})
+
+foo = do.call(rbind, lapply(results_glo, "[[", "res"))
+WriteXLS::WriteXLS(foo, "global_hrs.xlsx", row.names=TRUE, FreezeRow=1, FreezeCol=1)
+
+foo = data.frame(do.call(rbind, lapply(results_glo, "[[", "p")))
+rownames(foo) = kcs
+WriteXLS::WriteXLS(foo, "global_sim_params.xlsx", row.names=TRUE, FreezeRow=1, FreezeCol=1)
 
 foo = do.call(rbind, lapply(results_glo, "[[", "res"))
 
@@ -42,7 +49,7 @@ for (kc in kcs) {
 
 # Session Information
 
-```{r results="verbatim"}
+```{r session, results="verbatim"}
 sessionInfo()
 date()
 ```
